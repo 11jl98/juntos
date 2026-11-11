@@ -16,32 +16,34 @@ Abra http://localhost:3000. Sem variáveis de ambiente, o botão **Explorar demo
 ## Conectar o Supabase
 
 1. Crie um projeto Supabase e aguarde o banco ficar disponível.
-2. No **SQL Editor**, execute uma vez o conteúdo de `supabase/migrations/001_initial.sql`. A migração cria tabelas, funções, permissões e RLS.
+2. No **SQL Editor**, execute `supabase/migrations/001_initial.sql` e depois `supabase/migrations/002_single_couple_household.sql`. Em um projeto que já aplicou a 001, execute somente a 002. Ela limita o projeto a um único espaço do casal e falha sem alterar dados se detectar mais de um espaço existente.
 3. Copie `.env.example` para `.env.local` e preencha:
    - `NEXT_PUBLIC_SUPABASE_URL`: URL do projeto.
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`: publishable key (ou anon key legada).
    - `SUPABASE_SECRET_KEY`: secret key (ou service_role legada). **Somente no servidor**; nunca publique em repositório nem use prefixo `NEXT_PUBLIC`.
-4. Em **Authentication → URL Configuration**, configure Site URL para `http://localhost:3000` em desenvolvimento e autorize os redirects `http://localhost:3000/**`. Na produção, substitua pelo domínio HTTPS da Vercel e autorize esse domínio.
-5. Mantenha confirmação de e-mail habilitada. Para enviar e-mails a endereços reais de ambos, configure um SMTP no Supabase Auth. O remetente padrão tem restrições e limites; não presuma que ele atenderá ambos. Se usar um provedor com franquia gratuita, confira os limites atuais. O app não envia e-mails por conta própria.
-6. Reinicie `npm run dev` após mudar as variáveis.
+4. Em **Authentication → Sign In / Providers → Email**, desative **Allow new users to sign up**. O app não mostra cadastro; contas devem ser criadas pelo administrador do Supabase.
+5. Se sua esposa ainda não tiver uma conta Auth, use **Authentication → Users → Invite user** para provisionar o e-mail dela. Depois, use **Nosso espaço** para enviar o convite de acesso ao casal, vinculado ao mesmo e-mail.
+6. Em **Authentication → URL Configuration**, configure Site URL para `http://localhost:3000` em desenvolvimento e autorize os redirects `http://localhost:3000/**`. Na produção, substitua pelo domínio HTTPS da Vercel e autorize esse domínio.
+7. Mantenha confirmação de e-mail habilitada e configure SMTP para convite e recuperação de senha. O app não envia e-mails por conta própria.
+8. Reinicie `npm run dev` após mudar as variáveis.
 
 ## Primeiro acesso do casal
 
-1. Cada pessoa cria sua conta e confirma o próprio e-mail.
-2. Uma pessoa entra, cria o espaço e informa os dois nomes. Ela ocupa a posição “Pessoa 1”.
-3. Em **Nosso espaço**, o criador informa o e-mail do parceiro e gera um convite. Copie e envie o link manualmente.
-4. O parceiro abre o link e entra com o **mesmo e-mail informado**. O código é preservado nesta aba durante o login. Se confirmar e-mail em outra aba/dispositivo, abra novamente o convite original.
+1. A conta já cadastrada entra normalmente. Se necessário, o administrador cria a conta da esposa em Supabase Auth → Users → Invite user; inscrições públicas ficam desativadas.
+2. Uma pessoa cria o espaço e informa os dois nomes. Ela ocupa a posição “Pessoa 1”.
+3. Em **Nosso espaço**, o criador informa o e-mail exato da esposa e gera um convite. Copie e envie o link manualmente.
+4. A esposa abre o link e entra com o **mesmo e-mail convidado**. O código é preservado nesta aba durante o login. Se confirmar e-mail em outra aba/dispositivo, abra novamente o convite original.
 5. O convite expira em sete dias, funciona uma vez e é substituído quando um novo é gerado. O limite é de dois membros. Quem recebe convite não deve criar outro espaço antes de aceitá-lo.
-6. Cadastrem as contas de uso diário com saldo inicial e data; revisem o perfil 50/30/10/10 em **Planejamento → Editar regras**; cadastrem rendas, gastos e cartões.
+6. Cadastrem as contas de uso diário com saldo inicial e data; marquem uma conta principal para cada pessoa (se houver mais de uma); revisem o perfil em **Planejamento → Editar regras**; cadastrem rendas, gastos e cartões.
 
-Cada membro vê e altera os mesmos registros. Os nomes identificam as pessoas nos gastos; o ID de autenticação identifica o autor na auditoria. Somente o criador gerencia convites.
+Cada membro vê e altera os mesmos registros. O projeto aceita um único espaço com até dois membros; convites são de uso único e vinculados ao e-mail. Os nomes identificam as pessoas nos gastos; o ID de autenticação identifica o autor na auditoria. Somente o criador gerencia convites.
 
 ## Funcionalidades
 
 - Resumo mensal: receitas previstas/recebidas, gastos previstos, pendências, caixa projetado e capacidade adicional de poupança.
-- Receitas e despesas à vista; edição, exclusão, confirmação de pagamento e divisão meio a meio, proporcional à renda ou personalizada.
-- Regras de recorrência mensal, com início/fim e geração idempotente ao consultar o mês.
-- Cartões: limite estimado, fechamento, vencimento, compras parceladas, faturas, pagamentos parciais e estornos por parcela.
+- Receitas e despesas à vista; edição, exclusão, confirmação de pagamento e divisão meio a meio, proporcional à renda, personalizada ou individual. Despesas debitam automaticamente as contas principais de acordo com cada cota.
+- Regras de recorrência mensal para receitas e despesas bancárias, com início/fim e geração idempotente ao consultar o mês.
+- Cartões: limite estimado, fechamento, vencimento, compras parceladas, assinaturas mensais cadastradas em **Cartões → Compra → Assinatura mensal**, faturas, pagamentos parciais e estornos por cobrança.
 - Metas com saldo inicial, prioridade, prazo, aportes/retiradas realizados ou planejados e sugestão de aporte limitada ao orçamento/caixa.
 - Orçamento mensal com Contas, Diversão, Reserva e Investimentos; total de percentuais deve ser 100%.
 - Transferências entre contas; acertos entre as duas pessoas sem gerar renda/despesa artificial.
@@ -58,7 +60,7 @@ Cada membro vê e altera os mesmos registros. Os nomes identificam as pessoas no
 
 **Consumo:** despesa à vista pertence ao mês do vencimento. Parcela de cartão pertence ao mês de vencimento da fatura. Pagar a fatura não gera uma nova despesa. Aportes em metas não são consumo.
 
-**Caixa:** saldos iniciais + entradas pagas − saídas pagas − pagamentos de fatura − aportes realizados + retiradas, com transferências por conta. O painel do mês projeta pendências até seu final, incluindo contas atrasadas. Reservas registradas em metas ficam fora do saldo disponível.
+**Caixa:** o saldo inicial é uma fotografia até a data informada; movimentações posteriores alteram o saldo. Despesas pagas são distribuídas entre as contas principais conforme o rateio salvo, sem criar um segundo acerto. O painel do mês projeta pendências até seu final, incluindo contas atrasadas. Reservas registradas em metas ficam fora do saldo disponível.
 
 **Pode guardar mais:** menor valor entre resultado mensal ainda não destinado e caixa projetado menos margem mínima, limitado inferiormente a zero. Déficits continuam visíveis nos outros indicadores.
 
@@ -81,15 +83,15 @@ O projeto não foi conectado a uma conta Supabase/Vercel durante a geração. Ne
 
 ## Arquitetura
 
-| Caminho | Responsabilidade |
-| --- | --- |
-| `src/domain` | Tipos Zod, comandos, cálculos em centavos, CSV e dados fictícios |
-| `src/components` | Interface e formulários por módulo |
-| `src/app/api/finance` | Validação de sessão/comando, revisão e escrita atômica |
-| `src/app/api/household` | Criar espaço, gerar e aceitar convite |
-| `src/lib/server.ts` | Verificação de usuário e cliente privilegiado exclusivo do servidor |
-| `supabase/migrations` | PostgreSQL, RLS, convites, idempotência e auditoria |
-| `tests` | Cálculos e integração SQL com PGlite |
+| Caminho                 | Responsabilidade                                                    |
+| ----------------------- | ------------------------------------------------------------------- |
+| `src/domain`            | Tipos Zod, comandos, cálculos em centavos, CSV e dados fictícios    |
+| `src/components`        | Interface e formulários por módulo                                  |
+| `src/app/api/finance`   | Validação de sessão/comando, revisão e escrita atômica              |
+| `src/app/api/household` | Criar espaço, gerar e aceitar convite                               |
+| `src/lib/server.ts`     | Verificação de usuário e cliente privilegiado exclusivo do servidor |
+| `supabase/migrations`   | PostgreSQL, RLS, convites, idempotência e auditoria                 |
+| `tests`                 | Cálculos e integração SQL com PGlite                                |
 
 **Decisão de implementação:** as entidades financeiras são coleções tipadas em um agregado JSONB versionado por casal, em vez das tabelas financeiras separadas esboçadas no design. Membros, convites, revisões e auditoria são relacionais. Isso permite salvar operações envolvendo múltiplos saldos em uma transação, com um único domínio TypeScript compartilhado pela API e pela demonstração. O custo é tornar consultas analíticas SQL menos diretas e reescrever o agregado em cada operação; adequado ao escopo de dois usuários, com limites de volume declarados nos schemas.
 

@@ -1,5 +1,12 @@
 "use client";
-import { Plus, CreditCard, Pencil, ShieldCheck } from "lucide-react";
+import {
+  Plus,
+  CreditCard,
+  Pencil,
+  ShieldCheck,
+  Repeat2,
+  Trash2,
+} from "lucide-react";
 import { invoice } from "@/domain/finance";
 import { brl, dateLabel } from "@/domain/money";
 import { Button, Section, Empty, Progress, type FinanceProps } from "./ui";
@@ -79,6 +86,19 @@ export function Cards({ state: s, month, open, dispatch }: FinanceProps) {
                       </Button>
                       <Button
                         secondary
+                        onClick={() =>
+                          open({
+                            kind: "purchase",
+                            id: c.id,
+                            mode: "subscription",
+                          })
+                        }
+                      >
+                        <Repeat2 size={15} />
+                        Assinatura
+                      </Button>
+                      <Button
+                        secondary
                         onClick={() => open({ kind: "payInvoice", id: c.id })}
                         disabled={!inv.open}
                       >
@@ -112,6 +132,59 @@ export function Cards({ state: s, month, open, dispatch }: FinanceProps) {
               );
             })}
           </div>
+          <Section
+            title="Assinaturas mensais"
+            subtitle="Cobranças ligadas ao cartão, sem parcelamento"
+          >
+            {s.rules.filter((r) => r.cardId).length ? (
+              <div className="settings-list">
+                {s.rules
+                  .filter((r) => r.cardId)
+                  .map((r) => (
+                    <div className="settings-row" key={r.id}>
+                      <div className="grow">
+                        <strong>{r.description}</strong>
+                        <p>
+                          {s.cards.find((c) => c.id === r.cardId)?.name} ·{" "}
+                          {brl(r.amount)} ·
+                          {r.end ? ` até ${dateLabel(r.end)}` : " ativa"}
+                        </p>
+                      </div>
+                      <div className="row-actions">
+                        <Button
+                          secondary
+                          onClick={() => open({ kind: "recurring", id: r.id })}
+                        >
+                          Editar futuras
+                        </Button>
+                        <button
+                          className="icon-button danger"
+                          aria-label={`Encerrar assinatura ${r.description}`}
+                          onClick={() => {
+                            if (
+                              confirm(
+                                "Encerrar futuras cobranças? Cobranças atuais e já pagas serão preservadas.",
+                              )
+                            )
+                              void dispatch({
+                                type: "delete",
+                                entity: "rule",
+                                id: r.id,
+                              });
+                          }}
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="muted">
+                Nenhuma assinatura cadastrada nos cartões.
+              </p>
+            )}
+          </Section>
           {s.cards.map((c) => {
             const inv = invoice(s, c.id, month);
             return (
@@ -139,7 +212,11 @@ export function Cards({ state: s, month, open, dispatch }: FinanceProps) {
                               <strong>{e.description}</strong>
                             </td>
                             <td>
-                              {e.part}/{e.parts}
+                              {e.recurringId
+                                ? "Assinatura"
+                                : e.part
+                                  ? `${e.part}/${e.parts}`
+                                  : "À vista"}
                             </td>
                             <td>{dateLabel(e.date)}</td>
                             <td>{brl(e.amount)}</td>

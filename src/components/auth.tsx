@@ -5,10 +5,12 @@ import { browserSupabase, configured } from "@/lib/supabase";
 import { Button, Field } from "./ui";
 export function Auth({
   onDemo,
+  allowSignup = false,
   recovery = false,
   onRecovered,
 }: {
   onDemo: () => void;
+  allowSignup?: boolean;
   recovery?: boolean;
   onRecovered?: () => void;
 }) {
@@ -91,6 +93,10 @@ export function Auth({
                   password,
                 }));
               } else if (mode === "signup") {
+                if (!allowSignup)
+                  throw new Error(
+                    "Novos cadastros exigem um convite do casal.",
+                  );
                 ({ error } = await client.auth.signUp({
                   email,
                   password,
@@ -173,15 +179,19 @@ export function Auth({
         {!recovery && (
           <>
             <div className="auth-switch">
-              <button
-                className="text-button"
-                onClick={() => {
-                  setMessage("");
-                  setMode(mode === "signup" ? "login" : "signup");
-                }}
-              >
-                {mode === "signup" ? "Já tenho uma conta" : "Criar uma conta"}
-              </button>
+              {allowSignup && (
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    setMessage("");
+                    setMode(mode === "signup" ? "login" : "signup");
+                  }}
+                >
+                  {mode === "signup"
+                    ? "Já tenho uma conta"
+                    : "Criar uma conta pelo convite"}
+                </button>
+              )}
               <button
                 className="text-button"
                 onClick={() => {

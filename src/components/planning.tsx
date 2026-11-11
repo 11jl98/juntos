@@ -1,12 +1,35 @@
 "use client";
+import { useState } from "react";
 import { Plus, Target, Pencil, AlertCircle, Check, Trash2 } from "lucide-react";
-import { summarize, goalPlans } from "@/domain/finance";
+import { summarize, goalPlans, discretionarySpending } from "@/domain/finance";
 import { GROUPS } from "@/domain/types";
 import { brl, dateLabel } from "@/domain/money";
-import { Button, Section, Progress, Empty, type FinanceProps } from "./ui";
+import {
+  Button,
+  Section,
+  Progress,
+  Empty,
+  Field,
+  type FinanceProps,
+} from "./ui";
 export function Planning({ state: s, month, open, dispatch }: FinanceProps) {
   const t = summarize(s, month),
     goals = goalPlans(s, month);
+  const [cutPercent, setCutPercent] = useState(25);
+  const discretionary = discretionarySpending(s, month);
+  const discretionaryTotal = discretionary.reduce(
+    (total, category) => total + category.total,
+    0,
+  );
+  const monthlySavings = Math.round((discretionaryTotal * cutPercent) / 100);
+  const capacityWithSavings = Math.max(
+    0,
+    Math.min(
+      t.result + monthlySavings - t.contributed,
+      t.projected + monthlySavings - t.budget.margin,
+    ),
+  );
+  const additionalGoalCapacity = Math.max(0, capacityWithSavings - t.capacity);
   return (
     <>
       <div className="page-heading">
@@ -65,6 +88,64 @@ export function Planning({ state: s, month, open, dispatch }: FinanceProps) {
           movimenta dinheiro automaticamente.
         </p>
       </div>
+      <Section
+        title="Gastos que podem abrir espaço para metas"
+        subtitle="Oportunidades em categorias marcadas como Diversão, incluindo compras no cartão e outros lançamentos."
+      >
+        <div className="form-grid">
+          <Field label="Redução hipotética dos gastos variáveis">
+            <select
+              value={cutPercent}
+              onChange={(e) => setCutPercent(Number(e.target.value))}
+            >
+              <option value={10}>10%</option>
+              <option value={25}>25%</option>
+              <option value={50}>50%</option>
+            </select>
+          </Field>
+        </div>
+        {discretionary.length ? (
+          <>
+            <div className="settings-list">
+              {discretionary.map((category) => (
+                <div className="settings-row" key={category.id}>
+                  <div className="grow">
+                    <strong>{category.name}</strong>
+                    <p>
+                      Cartão: {brl(category.card)} · À vista / outros:{" "}
+                      {brl(category.cash)}
+                    </p>
+                  </div>
+                  <strong>{brl(category.total)}</strong>
+                </div>
+              ))}
+            </div>
+            <p>
+              Reduzindo {cutPercent}% em um mês semelhante, a economia potencial
+              seria <strong>{brl(monthlySavings)} por mês</strong> (
+              {brl(monthlySavings * 12)} em 12 meses).
+            </p>
+            <p>
+              Capacidade para metas: {brl(t.capacity)} →{" "}
+              <strong className="positive">{brl(capacityWithSavings)}</strong>
+              {additionalGoalCapacity > 0 && (
+                <> · até {brl(additionalGoalCapacity)} a mais</>
+              )}
+            </p>
+          </>
+        ) : (
+          <p className="muted">
+            Ainda não há gastos em categorias marcadas como Diversão neste mês.
+            Nenhuma despesa essencial será sugerida como evitável.
+          </p>
+        )}
+        <p className="form-note">
+          É uma simulação, não uma classificação automática de compras como
+          dispensáveis. Compras e parcelas já contratadas não são canceladas; a
+          estimativa não muda o saldo nem cria aportes. Revisem os lançamentos
+          antes de decidir o que redirecionar às metas.
+        </p>
+      </Section>
       <div className="goals-grid">
         {goals.map((g) => (
           <Section

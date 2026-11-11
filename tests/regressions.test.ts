@@ -11,18 +11,30 @@ import { firstInvoice } from "../src/domain/money";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createElement } from "react";
 import { Forms } from "../src/components/forms";
+import { Auth } from "../src/components/auth";
+import { Cards } from "../src/components/cards";
+import { Entries } from "../src/components/entries";
+import { Planning } from "../src/components/planning";
 import { assertRevision } from "../src/domain/revision";
 import { DEFAULT_BUDGET } from "../src/domain/types";
 function fixture() {
   const s = emptyState();
   s.accounts = [
-    { id: "a", name: "Ana", owner: "a", opening: 0, openingDate: "2026-01-01" },
+    {
+      id: "a",
+      name: "Ana",
+      owner: "a",
+      opening: 0,
+      openingDate: "2026-01-01",
+      primary: true,
+    },
     {
       id: "b",
       name: "Beto",
       owner: "b",
       opening: 0,
       openingDate: "2026-01-01",
+      primary: true,
     },
   ];
   s.cards = [
@@ -149,7 +161,7 @@ test("new expenses inherit the configured planning split", () => {
   );
   assert.match(html, /<option value="configured" selected="">/);
 });
-test("expense form derives the payer from the selected account", () => {
+test("expense form explains automatic debits from primary accounts", () => {
   const html = renderToStaticMarkup(
     createElement(Forms, {
       state: fixture(),
@@ -160,9 +172,149 @@ test("expense form derives the payer from the selected account", () => {
       dispatch: async () => true,
     }),
   );
-  assert.match(html, /Conta usada para pagar/);
-  assert.match(html, /titular da conta selecionada será considerado pagador/);
+  assert.match(html, /cotas serão debitadas automaticamente/);
+  assert.match(html, /conta não precisa ser selecionada/);
   assert.doesNotMatch(html, /Quem paga/);
+});
+test("income form identifies the owner of each optional account", () => {
+  const s = fixture();
+  s.entries.push({
+    id: "salary",
+    kind: "income",
+    description: "Salário",
+    amount: 100000,
+    date: "2026-11-05",
+    categoryId: "salary",
+    accountId: "a",
+    person: "a",
+    splitA: 50,
+    paidDate: null,
+  });
+  const html = renderToStaticMarkup(
+    createElement(Forms, {
+      state: s,
+      month: "2026-11",
+      dialog: { kind: "entry", id: "salary" },
+      onClose: () => {},
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  assert.match(html, /Ana · Você/);
+  assert.match(html, /Beto · Seu amor/);
+});
+test("planning shows discretionary card and non-card spending with safeguards", () => {
+  const s = fixture();
+  s.entries.push(
+    {
+      id: "fun-cash",
+      kind: "expense",
+      description: "Cinema",
+      amount: 10000,
+      date: "2026-11-05",
+      categoryId: "leisure",
+      accountId: "a",
+      person: "a",
+      splitA: 100,
+      paidDate: null,
+    },
+    {
+      id: "fun-card",
+      kind: "expense",
+      description: "Show",
+      amount: 20000,
+      date: "2026-11-06",
+      categoryId: "leisure",
+      accountId: "a",
+      person: "a",
+      splitA: 100,
+      paidDate: null,
+      cardId: "c",
+    },
+  );
+  const html = renderToStaticMarkup(
+    createElement(Planning, {
+      state: s,
+      month: "2026-11",
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  assert.match(html, /Gastos que podem abrir espaço para metas/);
+  assert.match(html, /Cartão:.*200,00.*À vista \/ outros:.*100,00/);
+  assert.match(html, /nem cria aportes/);
+});
+test("new card purchases default to the cardholder as an individual expense", () => {
+  const s = fixture();
+  const html = renderToStaticMarkup(
+    createElement(Forms, {
+      state: s,
+      month: "2026-11",
+      dialog: { kind: "purchase" },
+      onClose: () => {},
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  assert.match(html, /<option value="individual" selected="">/);
+  assert.match(html, /C · Você/);
+  assert.match(html, /titular deste cartão/);
+});
+test("subscription is created from the card purchase dialog", () => {
+  const s = fixture();
+  const html = renderToStaticMarkup(
+    createElement(Forms, {
+      state: s,
+      month: "2026-11",
+      dialog: { kind: "purchase", id: "c", mode: "subscription" },
+      onClose: () => {},
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  assert.match(html, /Nova assinatura no cartão/);
+  assert.match(html, /value="subscription" selected=""/);
+  assert.match(html, /Cartão/);
+  assert.match(html, /Data da primeira cobrança na fatura/);
+  assert.match(html, /Não é um parcelamento/);
+  assert.doesNotMatch(html, /Número de parcelas/);
+});
+test("card subscriptions are managed in Cards, not listed in Entries", () => {
+  const s = fixture();
+  s.rules.push({
+    id: "netflix",
+    kind: "expense",
+    description: "Netflix",
+    amount: 5590,
+    categoryId: "leisure",
+    cardId: "c",
+    person: "a",
+    splitA: 100,
+    start: "2026-11-12",
+    end: null,
+  });
+  const props = {
+    state: s,
+    month: "2026-11",
+    open: () => {},
+    dispatch: async () => true,
+  };
+  const cardsHtml = renderToStaticMarkup(createElement(Cards, props));
+  const entriesHtml = renderToStaticMarkup(createElement(Entries, props));
+  assert.match(cardsHtml, /Assinaturas mensais/);
+  assert.match(cardsHtml, /Netflix/);
+  assert.match(cardsHtml, /Editar futuras/);
+  assert.doesNotMatch(entriesHtml, /Netflix/);
+});
+test("account creation is hidden unless the visitor has a household invitation", () => {
+  const login = renderToStaticMarkup(
+    createElement(Auth, { onDemo: () => {}, allowSignup: false }),
+  );
+  const invited = renderToStaticMarkup(
+    createElement(Auth, { onDemo: () => {}, allowSignup: true }),
+  );
+  assert.doesNotMatch(login, /Criar uma conta pelo convite/);
+  assert.match(invited, /Criar uma conta pelo convite/);
 });
 test("opened form revision rejects stale edit even after a background refresh", () => {
   assert.throws(() => assertRevision(3, 4), /atualiz/i);

@@ -7,7 +7,13 @@ import {
   type Entry,
 } from "./types";
 import { addMonths, allocate, installmentAmounts } from "./money";
-import { invoice, entryRefund, entryPaid, goalSaved } from "./finance";
+import {
+  invoice,
+  entryRefund,
+  entryPaid,
+  goalSaved,
+  primaryAccount,
+} from "./finance";
 
 export function emptyState(): State {
   return {
@@ -104,6 +110,31 @@ function accountDate(s: State, id: string, date: string) {
   if (date < a.openingDate)
     throw new Error("A data é anterior ao saldo inicial da conta.");
 }
+function expenseAccountDebits(
+  s: State,
+  amount: number,
+  splitA: number,
+  date: string,
+  preferred?: Entry["accountDebits"],
+) {
+  return allocate(amount, [splitA, 100 - splitA]).flatMap((share, index) => {
+    if (!share) return [];
+    const owner = index === 0 ? "a" : "b";
+    const previous = preferred?.find(
+      (debit) =>
+        s.accounts.find((a) => a.id === debit.accountId)?.owner === owner,
+    );
+    const target = previous
+      ? requireItem(s.accounts, previous.accountId, "Conta principal")
+      : primaryAccount(s, owner);
+    if (!target)
+      throw new Error(
+        `Defina a conta principal para ${s.names[index]} antes de pagar esta despesa.`,
+      );
+    accountDate(s, target.id, date);
+    return [{ accountId: target.id, amount: share }];
+  });
+}
 function validateEntry(s: State, e: Entry) {
   requireItem(s.categories, e.categoryId, "Categoria");
   if (e.accountId) requireItem(s.accounts, e.accountId, "Conta");
@@ -131,15 +162,39 @@ export function applyCommand(
         old &&
         (old.owner !== c.value.owner ||
           old.openingDate !== c.value.openingDate) &&
-        ([...s.entries, ...s.payments, ...s.movements, ...s.rules].some(
-          (e) => e.accountId === old.id,
+        (s.entries.some(
+          (e) =>
+            e.accountId === old.id ||
+            e.accountDebits?.some((debit) => debit.accountId === old.id),
         ) ||
+          [...s.payments, ...s.movements, ...s.rules].some(
+            (e) => e.accountId === old.id,
+          ) ||
           s.transfers.some((t) => t.from === old.id || t.to === old.id))
       )
         throw new Error(
           "Conta com histórico: mantenha o titular e a data inicial.",
         );
-      upsert(s.accounts, c.value);
+      const value = { ...c.value };
+      if (old?.primary && (!value.primary || old.owner !== value.owner)) {
+        const replacement = s.accounts.find(
+          (a) => a.id !== old.id && a.owner === old.owner,
+        );
+        if (replacement) replacement.primary = true;
+        else if (old.owner === value.owner) value.primary = true;
+      }
+      if (value.primary) {
+        s.accounts = s.accounts.map((a) =>
+          a.owner === value.owner ? { ...a, primary: false } : a,
+        );
+      } else if (!old) {
+        const owned = s.accounts.filter((a) => a.owner === value.owner);
+        if (!owned.some((a) => a.primary)) {
+          if (owned.length === 1) owned[0].primary = true;
+          else if (owned.length === 0) value.primary = true;
+        }
+      }
+      upsert(s.accounts, value);
       break;
     }
     case "category":
@@ -165,6 +220,22 @@ export function applyCommand(
       if (old?.cardId)
         throw new Error("Compra de cartão: use estorno para ajustar.");
       const value = { ...c.value };
+      if (
+        value.kind === "expense" &&
+        value.paidDate &&
+        (!old?.paidDate || old.accountDebits)
+      ) {
+        value.accountDebits = expenseAccountDebits(
+          s,
+          value.amount,
+          value.splitA,
+          value.paidDate,
+          old?.accountDebits,
+        );
+        value.accountId = value.accountDebits[0].accountId;
+      } else if (!value.paidDate) {
+        delete value.accountDebits;
+      }
       if (old?.batchId) {
         delete value.batchId;
       }
@@ -176,7 +247,18 @@ export function applyCommand(
       const e = requireItem(s.entries, c.id, "Lançamento");
       if (e.cardId || e.paidDate)
         throw new Error("Lançamento já pago ou vinculado a fatura.");
-      if (e.accountId) accountDate(s, e.accountId, c.date);
+      if (e.kind === "income") {
+        if (e.accountId) accountDate(s, e.accountId, c.date);
+      } else {
+        const accountDebits = expenseAccountDebits(
+          s,
+          e.amount,
+          e.splitA,
+          c.date,
+        );
+        e.accountDebits = accountDebits;
+        e.accountId = accountDebits[0].accountId;
+      }
       e.paidDate = c.date;
       delete e.batchId;
       break;
@@ -300,10 +382,13 @@ export function applyCommand(
       break;
     }
     case "recurring": {
+      if (c.value.cardId) requireItem(s.cards, c.value.cardId, "Cartão");
       if (c.value.accountId)
         requireItem(s.accounts, c.value.accountId, "Conta");
-      else if (c.value.kind === "expense")
+      else if (c.value.kind === "expense" && !c.value.cardId)
         throw new Error("Despesas recorrentes precisam de uma conta.");
+      if (c.value.cardId && c.value.kind !== "expense")
+        throw new Error("Assinaturas recorrentes precisam ser despesas.");
       requireItem(s.categories, c.value.categoryId, "Categoria");
       if (c.value.end && c.value.end < c.value.start)
         throw new Error("Fim anterior ao início.");
@@ -318,7 +403,10 @@ export function applyCommand(
         ).entries;
         s.entries = s.entries.filter(
           (e) =>
-            e.recurringId !== old.id || e.date < c.value.start || e.paidDate,
+            e.recurringId !== old.id ||
+            e.date < c.value.start ||
+            e.paidDate ||
+            (e.cardId && entryPaid(s, e.id) > 0),
         );
         c.value.id = old.id;
       }
@@ -353,10 +441,11 @@ export function applyCommand(
               amount: r.amount,
               date: due,
               categoryId: r.categoryId,
-              accountId: r.accountId,
+              accountId: r.cardId ? undefined : r.accountId,
               person: r.person,
               splitA: r.splitA,
               paidDate: null,
+              ...(r.cardId ? { cardId: r.cardId } : {}),
               recurringId: r.id,
             });
         }
@@ -405,17 +494,34 @@ export function applyCommand(
           s.skippedOccurrences.push(e.id);
         s.entries = s.entries.filter((e) => e.id !== c.id);
       } else if (c.entity === "rule") {
+        const rule = requireItem(s.rules, c.id, "Recorrência");
+        if (rule.cardId) {
+          s.entries = s.entries.filter(
+            (e) =>
+              e.recurringId !== rule.id ||
+              e.date <= date ||
+              entryPaid(s, e.id) > 0,
+          );
+        }
         s.rules = s.rules.filter((r) => r.id !== c.id);
       } else if (c.entity === "account") {
         if (
           s.entries.some((e) => e.accountId === c.id) ||
+          s.entries.some((e) =>
+            e.accountDebits?.some((debit) => debit.accountId === c.id),
+          ) ||
           s.rules.some((e) => e.accountId === c.id) ||
           s.payments.some((p) => p.accountId === c.id) ||
           s.movements.some((m) => m.accountId === c.id) ||
           s.transfers.some((t) => t.from === c.id || t.to === c.id)
         )
           throw new Error("Conta possui histórico.");
+        const removed = s.accounts.find((a) => a.id === c.id);
         s.accounts = s.accounts.filter((a) => a.id !== c.id);
+        if (removed?.primary) {
+          const replacement = s.accounts.find((a) => a.owner === removed.owner);
+          if (replacement) replacement.primary = true;
+        }
       } else if (c.entity === "card") {
         if (s.entries.some((e) => e.cardId === c.id))
           throw new Error("Cartão possui histórico.");

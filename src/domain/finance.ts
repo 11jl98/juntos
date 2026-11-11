@@ -1,7 +1,13 @@
-import { DEFAULT_BUDGET, type State, type Entry } from "./types";
+import { DEFAULT_BUDGET, type State, type Entry, type Person } from "./types";
 import { allocate } from "./money";
 import { invoiceLedger, cardFunding } from "./card-ledger";
 const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
+export function primaryAccount(s: State, person: Person) {
+  const owned = s.accounts.filter((a) => a.owner === person);
+  return (
+    owned.find((a) => a.primary) ?? (owned.length === 1 ? owned[0] : undefined)
+  );
+}
 export const goalSaved = (s: State, id: string, until = "9999-12-31") =>
   (s.goals.find((g) => g.id === id)?.initial ?? 0) +
   sum(
@@ -27,21 +33,30 @@ export function accountBalance(s: State, id: string, until = "9999-12-31") {
       s.entries
         .filter(
           (e) =>
-            e.accountId === id &&
             !e.cardId &&
             e.paidDate &&
             e.paidDate > a.openingDate &&
-            e.paidDate <= until,
+            e.paidDate <= until &&
+            (e.accountDebits
+              ? e.accountDebits.some((debit) => debit.accountId === id)
+              : e.accountId === id),
         )
-        .map((e) => e.amount * (e.kind === "income" ? 1 : -1)),
+        .map((e) => {
+          const amount = e.accountDebits
+            ? sum(
+                e.accountDebits
+                  .filter((debit) => debit.accountId === id)
+                  .map((debit) => debit.amount),
+              )
+            : e.amount;
+          return amount * (e.kind === "income" ? 1 : -1);
+        }),
     ) -
     sum(
       s.payments
         .filter(
           (p) =>
-            p.accountId === id &&
-            p.date > a.openingDate &&
-            p.date <= until,
+            p.accountId === id && p.date > a.openingDate && p.date <= until,
         )
         .map((p) => p.amount),
     ) -
@@ -69,7 +84,7 @@ export function invoice(s: State, cardId: string, month: string) {
 export function settlement(s: State) {
   let debt = 0;
   for (const e of s.entries.filter(
-    (e) => e.kind === "expense" && !e.cardId && e.paidDate,
+    (e) => e.kind === "expense" && !e.cardId && e.paidDate && !e.accountDebits,
   )) {
     const [a, b] = allocate(e.amount, [e.splitA, 100 - e.splitA]);
     debt += e.person === "a" ? b : -a;
@@ -307,6 +322,42 @@ export function categorySpending(s: State, month: string) {
     .filter((c) => c.total !== 0)
     .sort((a, b) => b.total - a.total);
 }
+export function discretionarySpending(s: State, month: string) {
+  const entries = s.entries.filter(
+    (e) => e.kind === "expense" && e.date.startsWith(month),
+  );
+  return s.categories
+    .filter((category) => category.group === "fun")
+    .map((category) => {
+      const rows = entries.filter((entry) => entry.categoryId === category.id);
+      const cardGross = sum(
+        rows.filter((entry) => entry.cardId).map((entry) => entry.amount),
+      );
+      const cash = sum(
+        rows.filter((entry) => !entry.cardId).map((entry) => entry.amount),
+      );
+      const refunds = sum(
+        s.refunds
+          .filter(
+            (refund) =>
+              refund.date.startsWith(month) &&
+              s.entries.find((entry) => entry.id === refund.entryId)
+                ?.categoryId === category.id,
+          )
+          .map((refund) => refund.amount),
+      );
+      const card = Math.max(0, cardGross - refunds);
+      return {
+        id: category.id,
+        name: category.name,
+        card,
+        cash,
+        total: card + cash,
+      };
+    })
+    .filter((category) => category.total > 0)
+    .sort((a, b) => b.total - a.total);
+}
 export function splitProportional(s: State, month: string) {
   const a = sum(
     s.entries
@@ -329,4 +380,31 @@ export function splitProportional(s: State, month: string) {
       "Cadastre as rendas previstas para dividir proporcionalmente.",
     );
   return Math.round((a / (a + b)) * 10000) / 100;
+}
+export function rentScenario(
+  s: State,
+  month: string,
+  housing: number,
+  currentRent: number,
+  proposedRent: number,
+) {
+  const totals = summarize(s, month);
+  const delta = proposedRent - currentRent;
+  const capacity = Math.max(
+    0,
+    Math.min(
+      totals.result - delta - totals.contributed,
+      totals.projected - delta - totals.budget.margin,
+    ),
+  );
+  return {
+    delta,
+    annualDelta: delta * 12,
+    housing: housing + delta,
+    incomeShare:
+      totals.income > 0 ? ((housing + delta) / totals.income) * 100 : null,
+    result: totals.result - delta,
+    capacity,
+    capacityDelta: capacity - totals.capacity,
+  };
 }

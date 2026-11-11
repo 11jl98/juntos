@@ -21,6 +21,7 @@ export function Entries({
 }: FinanceProps) {
   const [search, setSearch] = useState(""),
     [status, setStatus] = useState("all");
+  const accountRules = s.rules.filter((rule) => !rule.cardId);
   const rows = s.entries
     .filter(
       (e) =>
@@ -55,8 +56,29 @@ export function Entries({
                 data: e.date,
                 categoria:
                   s.categories.find((c) => c.id === e.categoryId)?.name ?? "",
-                conta: s.accounts.find((a) => a.id === e.accountId)?.name ?? "",
-                pessoa: s.names[e.person === "a" ? 0 : 1],
+                conta:
+                  e.accountDebits
+                    ?.map((debit) => {
+                      const account = s.accounts.find(
+                        (a) => a.id === debit.accountId,
+                      );
+                      return `${account?.name ?? "Conta"} (${brl(debit.amount)})`;
+                    })
+                    .join(" + ") ??
+                  s.accounts.find((a) => a.id === e.accountId)?.name ??
+                  "",
+                pessoa:
+                  e.kind === "income" || e.splitA === 100 || e.splitA === 0
+                    ? s.names[
+                        e.kind === "income"
+                          ? e.person === "a"
+                            ? 0
+                            : 1
+                          : e.splitA === 100
+                            ? 0
+                            : 1
+                      ]
+                    : `${s.names[0]} e ${s.names[1]}`,
                 status: e.paidDate ? "pago" : "pendente",
                 cartao: s.cards.find((c) => c.id === e.cardId)?.name ?? "",
                 parcela: e.part ?? "",
@@ -100,7 +122,7 @@ export function Entries({
                 <tr>
                   <th>Descrição</th>
                   <th>Data / competência</th>
-                  <th>Responsável</th>
+                  <th>Responsáveis</th>
                   <th>Divisão</th>
                   <th>Valor</th>
                   <th>Status</th>
@@ -115,18 +137,48 @@ export function Entries({
                       <small className="block muted">
                         {s.categories.find((c) => c.id === e.categoryId)?.name}
                         {e.cardId
-                          ? ` · ${e.part}/${e.parts} no cartão`
+                          ? e.recurringId
+                            ? " · Assinatura no cartão"
+                            : e.part
+                              ? ` · ${e.part}/${e.parts} no cartão`
+                              : " · No cartão"
                           : e.recurringId
                             ? " · Recorrente"
                             : ""}
                       </small>
+                      {e.accountDebits && (
+                        <small className="block muted">
+                          {e.accountDebits
+                            .map((debit) => {
+                              const account = s.accounts.find(
+                                (a) => a.id === debit.accountId,
+                              );
+                              return `${account?.name ?? "Conta"}: ${brl(debit.amount)}`;
+                            })
+                            .join(" · ")}
+                        </small>
+                      )}
                     </td>
                     <td>{dateLabel(e.date)}</td>
-                    <td>{s.names[e.person === "a" ? 0 : 1]}</td>
+                    <td>
+                      {e.kind === "income" || e.splitA === 100 || e.splitA === 0
+                        ? s.names[
+                            e.kind === "income"
+                              ? e.person === "a"
+                                ? 0
+                                : 1
+                              : e.splitA === 100
+                                ? 0
+                                : 1
+                          ]
+                        : `${s.names[0]} e ${s.names[1]}`}
+                    </td>
                     <td>
                       {e.kind === "income"
                         ? "—"
-                        : `${e.splitA}% / ${100 - e.splitA}%`}
+                        : e.splitA === 100 || e.splitA === 0
+                          ? `Individual · ${s.names[e.splitA === 100 ? 0 : 1]}`
+                          : `${e.splitA}% / ${100 - e.splitA}%`}
                     </td>
                     <td
                       className={`amount ${e.kind === "income" ? "positive" : ""}`}
@@ -225,14 +277,17 @@ export function Entries({
           </Button>
         }
       >
-        {s.rules.length ? (
+        {accountRules.length ? (
           <div className="settings-list">
-            {s.rules.map((r) => (
+            {accountRules.map((r) => (
               <div className="settings-row" key={r.id}>
                 <div>
                   <strong>{r.description}</strong>
                   <p>
-                    Dia {r.start.slice(8)} · {brl(r.amount)} ·{" "}
+                    {r.cardId
+                      ? `Assinatura no ${s.cards.find((c) => c.id === r.cardId)?.name ?? "cartão"}`
+                      : `Dia ${r.start.slice(8)}`}{" "}
+                    · {brl(r.amount)} ·{" "}
                     {r.end ? `até ${dateLabel(r.end)}` : "sem data final"}
                   </p>
                 </div>

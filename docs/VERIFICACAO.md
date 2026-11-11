@@ -2,7 +2,7 @@
 
 ## Executado
 
-- **29 testes automatizados**: centavos, rateio, parcelas, fechamento em fevereiro, competência/caixa, aportes, percentuais, recorrências, meses não visitados, estornos, crédito transportado entre faturas e acertos entre pessoas.
+- **50 testes automatizados**: centavos, rateio por pessoa, débitos distribuídos entre contas principais, snapshot de saldo sem dupla contagem, simulação de aluguel, oportunidades em gastos discricionários, assinaturas mensais em cartão e encerramento futuro, limite de um espaço, isolamento RLS, convites, parcelas, fechamento em fevereiro, competência/caixa, aportes, percentuais, recorrências, meses não visitados, estornos, crédito transportado entre faturas e acertos entre pessoas.
 - Regressão de formulário: editar uma despesa conserva o percentual personalizado.
 - Controle de revisão: impede salvar formulário aberto antes de outra atualização.
 - Teste de PostgreSQL embarcado (PGlite) executando a migração real: RLS, convite vinculado ao e-mail, uso único, dois membros, escrita restrita ao serviço, CAS e deduplicação de requisições.

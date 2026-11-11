@@ -22,6 +22,7 @@ export const accountSchema = z.object({
   owner: person,
   opening: z.number().int().min(-1e12).max(1e12),
   openingDate: dateSchema,
+  primary: z.boolean().default(false),
 });
 export const categorySchema = z.object({
   id,
@@ -38,6 +39,9 @@ export const entrySchema = z.object({
   date: dateSchema,
   categoryId: id,
   accountId: id.optional(),
+  accountDebits: z
+    .array(z.object({ accountId: id, amount: positive }))
+    .optional(),
   person,
   splitA: ratio,
   paidDate: dateSchema.nullable(),
@@ -77,7 +81,11 @@ export const ruleSchema = entrySchema
     recurringId: true,
     batchId: true,
   })
-  .extend({ start: dateSchema, end: dateSchema.nullable() });
+  .extend({
+    cardId: id.optional(),
+    start: dateSchema,
+    end: dateSchema.nullable(),
+  });
 export const movementSchema = z.object({
   id,
   goalId: id,

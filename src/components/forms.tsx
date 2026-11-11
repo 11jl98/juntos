@@ -3,8 +3,15 @@ import { useState, type FormEvent } from "react";
 import { Field, Modal, Button, type FinanceProps, type Dialog } from "./ui";
 import type { Command, Person } from "@/domain/types";
 import { DEFAULT_BUDGET } from "@/domain/types";
-import { money, today, firstInvoice, brl, addMonths } from "@/domain/money";
-import { splitProportional, invoice } from "@/domain/finance";
+import {
+  money,
+  today,
+  firstInvoice,
+  brl,
+  addMonths,
+  allocate,
+} from "@/domain/money";
+import { splitProportional, invoice, primaryAccount } from "@/domain/finance";
 const titles: Record<string, string> = {
   entry: "Novo lançamento",
   account: "Conta bancária",
@@ -17,7 +24,7 @@ const titles: Record<string, string> = {
   refund: "Estornar uma parcela",
   budget: "Planejamento do mês",
   transfer: "Transferência ou acerto",
-  recurring: "Conta recorrente",
+  recurring: "Receita, conta ou assinatura recorrente",
 };
 export function Forms({
   dialog,
@@ -52,16 +59,23 @@ export function Forms({
       entry?.paidDate ? "paid" : "pending",
     ),
     [split, setSplit] = useState(
-      entry ?? rule
-        ? (entry ?? rule)!.splitA !== 50
-          ? "custom"
-          : "equal"
-        : budget.splitMode === "income"
-          ? "proportional"
-          : "configured",
+      kind === "purchase" || (kind === "recurring" && !!rule?.cardId)
+        ? "individual"
+        : (entry ?? rule)
+          ? (entry ?? rule)!.splitA === 0 || (entry ?? rule)!.splitA === 100
+            ? "individual"
+            : (entry ?? rule)!.splitA === 50
+              ? "equal"
+              : "custom"
+          : budget.splitMode === "income"
+            ? "proportional"
+            : "configured",
     ),
     [purchaseCard, setPurchaseCard] = useState(
       card?.id ?? s.cards[0]?.id ?? "",
+    ),
+    [purchaseMode, setPurchaseMode] = useState<"purchase" | "subscription">(
+      dialog.mode === "subscription" ? "subscription" : "purchase",
     ),
     [purchaseDate, setPurchaseDate] = useState(today());
   const field = (
@@ -115,7 +129,7 @@ export function Forms({
       <select name={name} defaultValue={value} required>
         {s.accounts.map((a) => (
           <option key={a.id} value={a.id}>
-            {a.name}
+            {a.name} · {s.names[a.owner === "a" ? 0 : 1]}
           </option>
         ))}
       </select>
@@ -171,19 +185,17 @@ export function Forms({
       const n = (name: string) => Number(v(name));
       const m = (name: string) => money(v(name));
       const uid = id ?? crypto.randomUUID();
-      const selectedAccount = s.accounts.find((a) => a.id === v("accountId"));
-      const savedPayer =
-        kind === "entry" && entry?.accountId === v("accountId")
-          ? entry.person
-          : kind === "recurring" && rule?.accountId === v("accountId")
-            ? rule.person
-            : undefined;
       const person = (
-        kind === "entry" && entry?.paidDate
-          ? entry.person
-          : (kind === "entry" || kind === "recurring") &&
-              entryKind === "expense"
-            ? (savedPayer ?? selectedAccount?.owner)
+        (kind === "entry" || kind === "recurring") && entryKind === "expense"
+          ? kind === "recurring" && rule?.cardId
+            ? (s.cards.find((c) => c.id === rule.cardId)?.owner ??
+              rule.person ??
+              "a")
+            : split === "individual"
+              ? v("responsible") || entry?.person || rule?.person || "a"
+              : (entry?.person ?? rule?.person ?? "a")
+          : kind === "purchase"
+            ? s.cards.find((c) => c.id === purchaseCard)?.owner
             : v("person")
       ) as Person;
       const splitA = () =>
@@ -200,6 +212,25 @@ export function Forms({
                     ? 100
                     : 0
                   : n("splitA");
+      const expenseSplitA =
+        (kind === "entry" || (kind === "recurring" && !rule?.cardId)) &&
+        entryKind === "expense"
+          ? splitA()
+          : undefined;
+      const expenseShares =
+        expenseSplitA === undefined
+          ? []
+          : allocate(m("amount"), [expenseSplitA, 100 - expenseSplitA]);
+      const expenseAccounts = expenseShares.flatMap((share, index) => {
+        if (!share) return [];
+        const owner = index === 0 ? "a" : "b";
+        const target = primaryAccount(s, owner);
+        if (!target)
+          throw new Error(
+            `Defina a conta principal de ${s.names[owner === "a" ? 0 : 1]} em Nosso espaço.`,
+          );
+        return [target];
+      });
       let c: Command;
       switch (kind) {
         case "entry":
@@ -212,9 +243,12 @@ export function Forms({
               amount: m("amount"),
               date: v("date"),
               categoryId: v("categoryId"),
-              accountId: v("accountId") || undefined,
+              accountId:
+                entryKind === "income"
+                  ? v("accountId") || undefined
+                  : expenseAccounts[0]?.id,
               person,
-              splitA: splitA(),
+              splitA: expenseSplitA ?? splitA(),
               paidDate: v("status") === "paid" ? v("paidDate") : null,
             },
           };
@@ -228,6 +262,7 @@ export function Forms({
               owner: person,
               opening: m("opening"),
               openingDate: v("openingDate"),
+              primary: f.has("primary"),
             },
           };
           break;
@@ -285,19 +320,36 @@ export function Forms({
           };
           break;
         case "purchase":
-          c = {
-            type: "purchase",
-            id: crypto.randomUUID(),
-            description: v("description"),
-            amount: m("amount"),
-            date: purchaseDate,
-            firstDue: v("firstDue"),
-            count: n("count"),
-            cardId: purchaseCard,
-            categoryId: v("categoryId"),
-            person,
-            splitA: splitA(),
-          };
+          c =
+            purchaseMode === "subscription"
+              ? {
+                  type: "recurring",
+                  value: {
+                    id: crypto.randomUUID(),
+                    kind: "expense",
+                    description: v("description"),
+                    amount: m("amount"),
+                    categoryId: v("categoryId"),
+                    cardId: purchaseCard,
+                    person,
+                    splitA: splitA(),
+                    start: v("firstDue"),
+                    end: null,
+                  },
+                }
+              : {
+                  type: "purchase",
+                  id: crypto.randomUUID(),
+                  description: v("description"),
+                  amount: m("amount"),
+                  date: purchaseDate,
+                  firstDue: v("firstDue"),
+                  count: n("count"),
+                  cardId: purchaseCard,
+                  categoryId: v("categoryId"),
+                  person,
+                  splitA: splitA(),
+                };
           break;
         case "payInvoice":
           c = {
@@ -350,9 +402,15 @@ export function Forms({
               description: v("description"),
               amount: m("amount"),
               categoryId: v("categoryId"),
-              accountId: v("accountId") || undefined,
+              accountId:
+                entryKind === "income"
+                  ? v("accountId") || undefined
+                  : rule?.cardId
+                    ? undefined
+                    : expenseAccounts[0]?.id,
+              cardId: rule?.cardId,
               person,
-              splitA: splitA(),
+              splitA: entryKind === "expense" ? splitA() : 50,
               start: v("start"),
               end: v("end") || null,
             },
@@ -370,7 +428,14 @@ export function Forms({
   }
   const chosen = s.cards.find((c) => c.id === purchaseCard);
   return (
-    <Modal title={titles[kind] ?? "Editar"} onClose={onClose}>
+    <Modal
+      title={
+        kind === "purchase" && purchaseMode === "subscription"
+          ? "Nova assinatura no cartão"
+          : (titles[kind] ?? "Editar")
+      }
+      onClose={onClose}
+    >
       <form onSubmit={submit}>
         <fieldset disabled={busy} className="form-grid">
           {(kind === "entry" || kind === "recurring") && (
@@ -434,7 +499,9 @@ export function Forms({
               ) : (
                 <>
                   {field(
-                    "Início / mudança válida a partir de",
+                    kind === "recurring" && rule?.cardId
+                      ? "Data da primeira cobrança na fatura"
+                      : "Início / mudança válida a partir de",
                     "start",
                     ruleStart,
                     "date",
@@ -448,6 +515,15 @@ export function Forms({
                   )}
                 </>
               )}
+              {kind === "recurring" &&
+                entryKind === "expense" &&
+                rule?.cardId && (
+                  <p className="form-note">
+                    Assinatura vinculada ao cartão{" "}
+                    {s.cards.find((c) => c.id === rule.cardId)?.name}. Novas
+                    assinaturas são cadastradas em Cartões → Compra.
+                  </p>
+                )}
               {entryKind === "income" ? (
                 <Field label="Conta (opcional)">
                   <select
@@ -457,20 +533,40 @@ export function Forms({
                     <option value="">Sem conta vinculada</option>
                     {s.accounts.map((a) => (
                       <option key={a.id} value={a.id}>
-                        {a.name}
+                        {a.name} · {s.names[a.owner === "a" ? 0 : 1]}
                       </option>
                     ))}
                   </select>
                 </Field>
+              ) : kind === "recurring" && rule?.cardId ? (
+                <p className="form-note">
+                  Uma cobrança será adicionada à fatura selecionada a cada mês.
+                  Não é um parcelamento.
+                </p>
               ) : (
-                accounts("accountId", undefined, "Conta usada para pagar")
+                <p className="form-note">
+                  As cotas serão debitadas automaticamente das contas principais
+                  dos responsáveis. A conta não precisa ser selecionada.
+                </p>
               )}
               {categories()}
               {entryKind === "income" ? (
                 people(entry?.person ?? rule?.person, "person", "Quem recebe")
+              ) : kind === "recurring" && rule?.cardId ? (
+                <p className="form-note">
+                  A divisão atual da assinatura será preservada para futuras
+                  cobranças.
+                </p>
+              ) : split === "individual" ? (
+                people(
+                  entry?.person ?? rule?.person ?? "a",
+                  "responsible",
+                  "Responsável",
+                )
               ) : (
                 <p className="form-note">
-                  O titular da conta selecionada será considerado pagador.
+                  Cada parcela será debitada da conta principal de quem é
+                  responsável por ela.
                 </p>
               )}
               {entryKind === "expense" && division()}
@@ -491,6 +587,14 @@ export function Forms({
                 account?.openingDate ?? today(),
                 "date",
               )}
+              <label className="check">
+                <input
+                  type="checkbox"
+                  name="primary"
+                  defaultChecked={account?.primary}
+                />
+                Conta principal para débitos automáticos
+              </label>
               <p className="form-note">
                 Informe o saldo já existente nesta data. Receitas, despesas e
                 pagamentos até este dia ficam nos relatórios, mas não alteram o
@@ -621,24 +725,49 @@ export function Forms({
                 >
                   {s.cards.map((c) => (
                     <option key={c.id} value={c.id}>
-                      {c.name}
+                      {c.name} · {s.names[c.owner === "a" ? 0 : 1]}
                     </option>
                   ))}
                 </select>
               </Field>
-              {field("Descrição", "description", "")}
-              {field("Valor total da compra (R$)", "amount", "")}
-              {field("Número de parcelas", "count", 1, "number")}
-              <Field label="Data da compra">
-                <input
-                  type="date"
-                  value={purchaseDate}
-                  onChange={(e) => setPurchaseDate(e.target.value)}
-                  required
-                />
+              <Field label="Tipo de cobrança">
+                <select
+                  value={purchaseMode}
+                  onChange={(e) =>
+                    setPurchaseMode(
+                      e.target.value as "purchase" | "subscription",
+                    )
+                  }
+                >
+                  <option value="purchase">Compra ou parcelamento</option>
+                  <option value="subscription">Assinatura mensal</option>
+                </select>
               </Field>
+              {field("Descrição", "description", "")}
               {field(
-                "Vencimento da primeira parcela",
+                purchaseMode === "subscription"
+                  ? "Valor mensal (R$)"
+                  : "Valor total da compra (R$)",
+                "amount",
+                "",
+              )}
+              {purchaseMode === "purchase" && (
+                <>
+                  {field("Número de parcelas", "count", 1, "number")}
+                  <Field label="Data da compra">
+                    <input
+                      type="date"
+                      value={purchaseDate}
+                      onChange={(e) => setPurchaseDate(e.target.value)}
+                      required
+                    />
+                  </Field>
+                </>
+              )}
+              {field(
+                purchaseMode === "subscription"
+                  ? "Data da primeira cobrança na fatura"
+                  : "Vencimento da primeira parcela",
                 "firstDue",
                 chosen
                   ? firstInvoice(purchaseDate, chosen.closing, chosen.due)
@@ -646,12 +775,24 @@ export function Forms({
                 "date",
               )}
               {categories()}
-              {people(chosen?.owner)}
-              {division()}
               <p className="form-note">
-                Confira a primeira fatura com o banco. A última parcela absorve
-                os centavos restantes.
+                A compra será atribuída a{" "}
+                {s.names[chosen?.owner === "b" ? 1 : 0]}, titular deste cartão.
+                O padrão é individual; ajuste a divisão se a compra for
+                compartilhada.
               </p>
+              {division()}
+              {purchaseMode === "subscription" ? (
+                <p className="form-note">
+                  O valor será lançado uma vez por mês na fatura selecionada,
+                  até a recorrência ser encerrada. Não é um parcelamento.
+                </p>
+              ) : (
+                <p className="form-note">
+                  Confira a primeira fatura com o banco. A última parcela
+                  absorve os centavos restantes.
+                </p>
+              )}
             </>
           )}
           {kind === "payInvoice" && (

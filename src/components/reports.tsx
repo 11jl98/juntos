@@ -1,7 +1,12 @@
 "use client";
 import { useState } from "react";
 import { Home, TrendingUp } from "lucide-react";
-import { summarize, categorySpending, settlement } from "@/domain/finance";
+import {
+  summarize,
+  categorySpending,
+  settlement,
+  rentScenario,
+} from "@/domain/finance";
 import { brl, addMonths, monthLabel, money } from "@/domain/money";
 import { Section, Progress, Field, Metric, type FinanceProps } from "./ui";
 export function Reports({ state: s, month }: FinanceProps) {
@@ -11,8 +16,18 @@ export function Reports({ state: s, month }: FinanceProps) {
   const [oldRent, setOldRent] = useState(""),
     [newRent, setNewRent] = useState("");
   let delta: number | null = null;
+  let scenario: ReturnType<typeof rentScenario> | null = null;
   try {
-    if (oldRent && newRent) delta = money(newRent) - money(oldRent);
+    if (oldRent && newRent) {
+      delta = money(newRent) - money(oldRent);
+      scenario = rentScenario(
+        s,
+        month,
+        housing,
+        money(oldRent),
+        money(newRent),
+      );
+    }
   } catch {}
   const history = Array.from({ length: 6 }, (_, i) =>
     addMonths(month + "-01", i - 5).slice(0, 7),
@@ -151,29 +166,42 @@ export function Reports({ state: s, month }: FinanceProps) {
             {delta !== null ? (
               <>
                 <p>
-                  Variação mensal: <strong>{brl(delta)}</strong>
+                  Diferença no aluguel: <strong>{brl(delta)} por mês</strong> e{" "}
+                  <strong>{brl(delta * 12)} em 12 meses</strong>
                 </p>
                 <p>
-                  Resultado do mês simulado:{" "}
+                  Moradia total simulada:{" "}
+                  <strong>{brl(scenario!.housing)}</strong>
+                  {scenario!.incomeShare !== null && (
+                    <> · {scenario!.incomeShare.toFixed(1)}% da renda</>
+                  )}
+                </p>
+                <p>
+                  Resultado mensal: {brl(t.result)} →{" "}
                   <strong
-                    className={t.result - delta < 0 ? "negative" : "positive"}
+                    className={scenario!.result < 0 ? "negative" : "positive"}
                   >
-                    {brl(t.result - delta)}
+                    {brl(scenario!.result)}
                   </strong>
                 </p>
                 <p>
-                  Sobra adicional para metas:{" "}
-                  <strong>
-                    {brl(
-                      Math.max(
-                        0,
-                        Math.min(
-                          t.result - delta - t.contributed,
-                          t.projected - delta - t.budget.margin,
-                        ),
-                      ),
-                    )}
+                  Capacidade para metas: {brl(t.capacity)} →{" "}
+                  <strong className="positive">
+                    {brl(scenario!.capacity)}
                   </strong>
+                  {scenario!.capacityDelta !== 0 && (
+                    <> · diferença de {brl(scenario!.capacityDelta)}</>
+                  )}
+                </p>
+                <p className="form-note">
+                  {delta < 0
+                    ? `Reduzir o aluguel poderia liberar ${brl(-delta)} por mês (${brl(-delta * 12)} em 12 meses) para objetivos.`
+                    : delta > 0
+                      ? `O novo aluguel exigiria ${brl(delta)} a mais por mês (${brl(delta * 12)} em 12 meses).`
+                      : "O aluguel não muda neste cenário."}{" "}
+                  Caução, mudança, transporte e alterações de condomínio/contas
+                  não estão incluídos; os demais gastos e receitas permanecem
+                  constantes.
                 </p>
               </>
             ) : (

@@ -10,7 +10,7 @@ import {
   Wallet,
   Download as DownloadIcon,
 } from "lucide-react";
-import { accountBalance } from "@/domain/finance";
+import { accountBalance, primaryAccount } from "@/domain/finance";
 import { brl, money, today } from "@/domain/money";
 import { parseCSV, exportCSV } from "@/domain/csv";
 import { entrySchema, type Entry } from "@/domain/types";
@@ -251,7 +251,12 @@ export function Settings({
                 <Wallet size={18} />
               </span>
               <div className="grow">
-                <strong>{a.name}</strong>
+                <strong>
+                  {a.name}
+                  {primaryAccount(s, a.owner)?.id === a.id && (
+                    <span className="pill green">Principal</span>
+                  )}
+                </strong>
                 <p>
                   {s.names[a.owner === "a" ? 0 : 1]} ·{" "}
                   {brl(accountBalance(s, a.id))}

@@ -9,6 +9,7 @@ export function demoState(month: string) {
       owner: "a",
       opening: 120000,
       openingDate: month + "-01",
+      primary: true,
     },
     {
       id: "b",
@@ -16,6 +17,7 @@ export function demoState(month: string) {
       owner: "b",
       opening: 80000,
       openingDate: month + "-01",
+      primary: true,
     },
   ];
   s.cards = [

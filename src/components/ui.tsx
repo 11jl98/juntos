@@ -2,7 +2,12 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X, Plus, ArrowUpRight, Wallet } from "lucide-react";
 import type { Command, State } from "@/domain/types";
-export type Dialog = { kind: string; id?: string; revision?: number };
+export type Dialog = {
+  kind: string;
+  id?: string;
+  revision?: number;
+  mode?: "subscription" | "purchase";
+};
 export type FinanceProps = {
   state: State;
   month: string;
