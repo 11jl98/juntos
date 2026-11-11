@@ -260,6 +260,7 @@ export function Settings({
                 <p>
                   {s.names[a.owner === "a" ? 0 : 1]} ·{" "}
                   {brl(accountBalance(s, a.id))}
+                  {a.kind === "benefit" ? " · Vale-alimentação" : ""}
                 </p>
               </div>
               <button

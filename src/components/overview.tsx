@@ -57,9 +57,9 @@ export function Overview({ state: s, month, open }: FinanceProps) {
       </div>
       <div className="metrics">
         <Metric
-          label="Receitas do mês"
+          label="Receitas livres do mês"
           value={brl(t.income)}
-          note={`${brl(t.received)} já recebidos`}
+          note={`${brl(t.received)} já recebidos${t.benefitIncome ? ` · VA previsto: ${brl(t.benefitIncome)}` : ""}`}
           color="green"
           icon={<ArrowDownLeft size={20} />}
         />
@@ -284,7 +284,7 @@ export function Overview({ state: s, month, open }: FinanceProps) {
         }
       >
         {rows.length ? (
-          <div className="table-wrap">
+          <div className="table-wrap overview-table">
             <table>
               <thead>
                 <tr>
@@ -313,16 +313,16 @@ export function Overview({ state: s, month, open }: FinanceProps) {
                         <strong>{e.description}</strong>
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Categoria">
                       {s.categories.find((c) => c.id === e.categoryId)?.name}
                     </td>
-                    <td>
+                    <td data-label="Responsável">
                       <span className="person-tag">
                         {s.names[e.person === "a" ? 0 : 1]}
                       </span>
                     </td>
-                    <td>{dateLabel(e.date)}</td>
-                    <td>
+                    <td data-label="Data">{dateLabel(e.date)}</td>
+                    <td data-label="Situação">
                       <span
                         className={`pill ${e.paidDate ? "green" : "amber"}`}
                       >
@@ -334,6 +334,7 @@ export function Overview({ state: s, month, open }: FinanceProps) {
                       </span>
                     </td>
                     <td
+                      data-label="Valor"
                       className={`right amount ${e.kind === "income" ? "positive" : ""}`}
                     >
                       {e.kind === "income" ? "+" : "−"} {brl(e.amount)}

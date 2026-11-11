@@ -194,7 +194,7 @@ export function Cards({ state: s, month, open, dispatch }: FinanceProps) {
                 subtitle={`Compras ${brl(inv.total)} · pagos ${brl(inv.paid)} · crédito a transportar ${brl(inv.credit)}`}
               >
                 {inv.rows.length ? (
-                  <div className="table-wrap">
+                  <div className="table-wrap invoice-table">
                     <table>
                       <thead>
                         <tr>
@@ -211,16 +211,16 @@ export function Cards({ state: s, month, open, dispatch }: FinanceProps) {
                             <td>
                               <strong>{e.description}</strong>
                             </td>
-                            <td>
+                            <td data-label="Tipo">
                               {e.recurringId
                                 ? "Assinatura"
                                 : e.part
                                   ? `${e.part}/${e.parts}`
                                   : "À vista"}
                             </td>
-                            <td>{dateLabel(e.date)}</td>
-                            <td>{brl(e.amount)}</td>
-                            <td>
+                            <td data-label="Vencimento">{dateLabel(e.date)}</td>
+                            <td data-label="Valor">{brl(e.amount)}</td>
+                            <td data-label="Ajuste">
                               <button
                                 className="text-button"
                                 onClick={() =>

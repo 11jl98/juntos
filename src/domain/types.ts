@@ -23,6 +23,7 @@ export const accountSchema = z.object({
   opening: z.number().int().min(-1e12).max(1e12),
   openingDate: dateSchema,
   primary: z.boolean().default(false),
+  kind: z.enum(["cash", "benefit"]).optional(),
 });
 export const categorySchema = z.object({
   id,
@@ -39,6 +40,7 @@ export const entrySchema = z.object({
   date: dateSchema,
   categoryId: id,
   accountId: id.optional(),
+  paymentAccountId: id.optional(),
   accountDebits: z
     .array(z.object({ accountId: id, amount: positive }))
     .optional(),

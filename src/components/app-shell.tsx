@@ -433,6 +433,7 @@ export default function AppShell() {
     dispatch,
     open: (d: Dialog) => setDialog({ ...d, revision: revision.current }),
     person,
+    onPersonChange: setPerson,
   };
   const changeMonth = (delta: number) =>
     setMonth(addMonths(month + "-01", delta).slice(0, 7));
@@ -553,17 +554,6 @@ export default function AppShell() {
                 <ChevronRight size={16} />
               </button>
             </div>
-            {tab === "entries" && (
-              <select
-                aria-label="Filtrar pessoa"
-                value={person}
-                onChange={(e) => setPerson(e.target.value)}
-              >
-                <option value="all">Nós dois</option>
-                <option value="a">{state.names[0]}</option>
-                <option value="b">{state.names[1]}</option>
-              </select>
-            )}
             <button
               className="icon-button sync-button"
               aria-label="Atualizar dados"

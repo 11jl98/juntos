@@ -69,7 +69,9 @@ export function Planning({ state: s, month, open, dispatch }: FinanceProps) {
               />
               <p>
                 {brl(t.used[i])}{" "}
-                {i < 2 ? "em gastos previstos" : "aportados / comprometidos"}
+                {i < 2
+                  ? "em gastos com renda livre"
+                  : "aportados / comprometidos"}
               </p>
               <small className={t.used[i] > t.limits[i] ? "negative" : ""}>
                 {t.used[i] > t.limits[i]

@@ -41,7 +41,7 @@ Cada membro vê e altera os mesmos registros. O projeto aceita um único espaço
 ## Funcionalidades
 
 - Resumo mensal: receitas previstas/recebidas, gastos previstos, pendências, caixa projetado e capacidade adicional de poupança.
-- Receitas e despesas à vista; edição, exclusão, confirmação de pagamento e divisão meio a meio, proporcional à renda, personalizada ou individual. Despesas debitam automaticamente as contas principais de acordo com cada cota.
+- Receitas e despesas à vista; edição, exclusão, confirmação de pagamento e divisão meio a meio, proporcional à renda, personalizada ou individual. Nas despesas individuais, escolha uma conta do responsável; as compartilhadas debitam as contas principais conforme as cotas.
 - Regras de recorrência mensal para receitas e despesas bancárias, com início/fim e geração idempotente ao consultar o mês.
 - Cartões: limite estimado, fechamento, vencimento, compras parceladas, assinaturas mensais cadastradas em **Cartões → Compra → Assinatura mensal**, faturas, pagamentos parciais e estornos por cobrança.
 - Metas com saldo inicial, prioridade, prazo, aportes/retiradas realizados ou planejados e sugestão de aporte limitada ao orçamento/caixa.
@@ -56,11 +56,13 @@ Cada membro vê e altera os mesmos registros. O projeto aceita um único espaço
 
 **Dinheiro:** centavos inteiros. Valores em reais são convertidos na entrada e formatados em pt-BR. Parcelamento distribui o resto de centavos na última parcela.
 
-**Renda:** valores líquidos cadastrados. Saldo inicial de conta, transferências e retiradas de metas não são receitas. A base percentual é a renda prevista do mês.
+**Renda:** valores líquidos cadastrados. Saldo inicial de conta, transferências e retiradas de metas não são receitas. A base percentual é a renda livre prevista do mês; créditos associados a contas do tipo vale-alimentação são mostrados separadamente e não entram no rateio proporcional ou na base para metas.
 
 **Consumo:** despesa à vista pertence ao mês do vencimento. Parcela de cartão pertence ao mês de vencimento da fatura. Pagar a fatura não gera uma nova despesa. Aportes em metas não são consumo.
 
-**Caixa:** o saldo inicial é uma fotografia até a data informada; movimentações posteriores alteram o saldo. Despesas pagas são distribuídas entre as contas principais conforme o rateio salvo, sem criar um segundo acerto. O painel do mês projeta pendências até seu final, incluindo contas atrasadas. Reservas registradas em metas ficam fora do saldo disponível.
+**Caixa:** o saldo inicial é uma fotografia até a data informada; movimentações posteriores alteram o saldo. Despesas pagas são distribuídas conforme o rateio salvo, sem criar um segundo acerto. Nas despesas individuais, a conta escolhida é preservada; nas compartilhadas, usam-se as contas principais. O painel do mês projeta pendências até seu final, incluindo contas atrasadas. Reservas registradas em metas e saldos de vale-alimentação ficam fora do dinheiro disponível.
+
+**Vale-alimentação:** em **Nosso espaço**, edite a conta do VA e selecione o tipo **Vale-alimentação**. Vincule o crédito de receita a ela; em cada despesa individual de mercado, selecione essa conta. O saldo do VA fica separado, e seus créditos e despesas não aumentam nem diminuem a capacidade de guardar dinheiro livre. Alterar o tipo de uma conta reclassifica seus lançamentos anteriores nos cálculos; revise o histórico e o saldo inicial. Contas com transferências, aportes ou pagamentos de fatura não podem ser convertidas em VA.
 
 **Pode guardar mais:** menor valor entre resultado mensal ainda não destinado e caixa projetado menos margem mínima, limitado inferiormente a zero. Déficits continuam visíveis nos outros indicadores.
 

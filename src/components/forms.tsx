@@ -58,6 +58,22 @@ export function Forms({
     [entryStatus, setEntryStatus] = useState(
       entry?.paidDate ? "paid" : "pending",
     ),
+    [responsible, setResponsible] = useState<Person>(
+      (entry ?? rule)?.splitA === 0
+        ? "b"
+        : (entry ?? rule)?.splitA === 100
+          ? "a"
+          : (entry?.person ?? rule?.person ?? "a"),
+    ),
+    [paymentAccount, setPaymentAccount] = useState(
+      entry?.paymentAccountId ??
+        rule?.paymentAccountId ??
+        (entry?.splitA === 0 || entry?.splitA === 100
+          ? (entry.accountDebits?.[0]?.accountId ?? entry.accountId)
+          : undefined) ??
+        "",
+    ),
+    [accountKind, setAccountKind] = useState(account?.kind ?? "cash"),
     [split, setSplit] = useState(
       kind === "purchase" || (kind === "recurring" && !!rule?.cardId)
         ? "individual"
@@ -224,10 +240,17 @@ export function Forms({
       const expenseAccounts = expenseShares.flatMap((share, index) => {
         if (!share) return [];
         const owner = index === 0 ? "a" : "b";
-        const target = primaryAccount(s, owner);
+        const target =
+          split === "individual"
+            ? s.accounts.find(
+                (a) => a.id === v("paymentAccountId") && a.owner === owner,
+              )
+            : primaryAccount(s, owner);
         if (!target)
           throw new Error(
-            `Defina a conta principal de ${s.names[owner === "a" ? 0 : 1]} em Nosso espaço.`,
+            split === "individual"
+              ? `Escolha uma conta de ${s.names[owner === "a" ? 0 : 1]}.`
+              : `Defina a conta principal de ${s.names[owner === "a" ? 0 : 1]} em Nosso espaço.`,
           );
         return [target];
       });
@@ -247,6 +270,10 @@ export function Forms({
                 entryKind === "income"
                   ? v("accountId") || undefined
                   : expenseAccounts[0]?.id,
+              paymentAccountId:
+                entryKind === "expense" && split === "individual"
+                  ? v("paymentAccountId") || undefined
+                  : undefined,
               person,
               splitA: expenseSplitA ?? splitA(),
               paidDate: v("status") === "paid" ? v("paidDate") : null,
@@ -262,7 +289,8 @@ export function Forms({
               owner: person,
               opening: m("opening"),
               openingDate: v("openingDate"),
-              primary: f.has("primary"),
+              primary: accountKind === "cash" && f.has("primary"),
+              kind: accountKind,
             },
           };
           break;
@@ -409,6 +437,12 @@ export function Forms({
                     ? undefined
                     : expenseAccounts[0]?.id,
               cardId: rule?.cardId,
+              paymentAccountId:
+                entryKind === "expense" &&
+                !rule?.cardId &&
+                split === "individual"
+                  ? v("paymentAccountId") || undefined
+                  : undefined,
               person,
               splitA: entryKind === "expense" ? splitA() : 50,
               start: v("start"),
@@ -543,12 +577,12 @@ export function Forms({
                   Uma cobrança será adicionada à fatura selecionada a cada mês.
                   Não é um parcelamento.
                 </p>
-              ) : (
+              ) : split !== "individual" ? (
                 <p className="form-note">
                   As cotas serão debitadas automaticamente das contas principais
                   dos responsáveis. A conta não precisa ser selecionada.
                 </p>
-              )}
+              ) : null}
               {categories()}
               {entryKind === "income" ? (
                 people(entry?.person ?? rule?.person, "person", "Quem recebe")
@@ -558,11 +592,43 @@ export function Forms({
                   cobranças.
                 </p>
               ) : split === "individual" ? (
-                people(
-                  entry?.person ?? rule?.person ?? "a",
-                  "responsible",
-                  "Responsável",
-                )
+                <>
+                  <Field label="Responsável">
+                    <select
+                      name="responsible"
+                      value={responsible}
+                      onChange={(e) => setResponsible(e.target.value as Person)}
+                    >
+                      <option value="a">{s.names[0]}</option>
+                      <option value="b">{s.names[1]}</option>
+                    </select>
+                  </Field>
+                  <Field label="Conta usada para pagar">
+                    <select
+                      name="paymentAccountId"
+                      value={
+                        s.accounts.some(
+                          (a) =>
+                            a.id === paymentAccount && a.owner === responsible,
+                        )
+                          ? paymentAccount
+                          : (primaryAccount(s, responsible)?.id ?? "")
+                      }
+                      onChange={(e) => setPaymentAccount(e.target.value)}
+                      required
+                    >
+                      <option value="">Selecione uma conta</option>
+                      {s.accounts
+                        .filter((a) => a.owner === responsible)
+                        .map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                            {a.kind === "benefit" ? " · Vale-alimentação" : ""}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                </>
               ) : (
                 <p className="form-note">
                   Cada parcela será debitada da conta principal de quem é
@@ -576,6 +642,17 @@ export function Forms({
             <>
               {field("Nome da conta", "name", account?.name ?? "")}
               {people(account?.owner, "person", "Titular")}
+              <Field label="Tipo de conta">
+                <select
+                  value={accountKind}
+                  onChange={(e) =>
+                    setAccountKind(e.target.value as "cash" | "benefit")
+                  }
+                >
+                  <option value="cash">Conta bancária / dinheiro</option>
+                  <option value="benefit">Vale-alimentação</option>
+                </select>
+              </Field>
               {field(
                 "Saldo inicial (R$)",
                 "opening",
@@ -587,14 +664,20 @@ export function Forms({
                 account?.openingDate ?? today(),
                 "date",
               )}
-              <label className="check">
-                <input
-                  type="checkbox"
-                  name="primary"
-                  defaultChecked={account?.primary}
-                />
-                Conta principal para débitos automáticos
-              </label>
+              {accountKind === "cash" ? (
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    name="primary"
+                    defaultChecked={account?.primary}
+                  />
+                  Conta principal para débitos automáticos
+                </label>
+              ) : (
+                <p className="form-note">
+                  O saldo do vale não entra no dinheiro disponível para metas.
+                </p>
+              )}
               <p className="form-note">
                 Informe o saldo já existente nesta data. Receitas, despesas e
                 pagamentos até este dia ficam nos relatórios, mas não alteram o

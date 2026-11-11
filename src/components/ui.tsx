@@ -14,6 +14,7 @@ export type FinanceProps = {
   dispatch: (c: Command, expectedRevision?: number) => Promise<boolean>;
   open: (d: Dialog) => void;
   person?: string;
+  onPersonChange?: (person: string) => void;
 };
 export function Button({
   children,

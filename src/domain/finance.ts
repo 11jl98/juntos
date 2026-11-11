@@ -2,8 +2,30 @@ import { DEFAULT_BUDGET, type State, type Entry, type Person } from "./types";
 import { allocate } from "./money";
 import { invoiceLedger, cardFunding } from "./card-ledger";
 const sum = (v: number[]) => v.reduce((a, b) => a + b, 0);
+function isBenefitAccount(s: State, id?: string) {
+  return (
+    !!id &&
+    s.accounts.some(
+      (account) => account.id === id && account.kind === "benefit",
+    )
+  );
+}
+function freeExpense(s: State, entry: Entry) {
+  if (entry.cardId) return entry.amount;
+  if (entry.accountDebits)
+    return sum(
+      entry.accountDebits
+        .filter((debit) => !isBenefitAccount(s, debit.accountId))
+        .map((debit) => debit.amount),
+    );
+  return isBenefitAccount(s, entry.paymentAccountId ?? entry.accountId)
+    ? 0
+    : entry.amount;
+}
 export function primaryAccount(s: State, person: Person) {
-  const owned = s.accounts.filter((a) => a.owner === person);
+  const owned = s.accounts.filter(
+    (a) => a.owner === person && a.kind !== "benefit",
+  );
   return (
     owned.find((a) => a.primary) ?? (owned.length === 1 ? owned[0] : undefined)
   );
@@ -105,12 +127,23 @@ export function settlement(s: State) {
 export function summarize(s: State, month: string) {
   const entries = s.entries.filter((e) => e.date.startsWith(month));
   const income = sum(
-    entries.filter((e) => e.kind === "income").map((e) => e.amount),
+    entries
+      .filter((e) => e.kind === "income" && !isBenefitAccount(s, e.accountId))
+      .map((e) => e.amount),
+  );
+  const benefitIncome = sum(
+    entries
+      .filter((e) => e.kind === "income" && isBenefitAccount(s, e.accountId))
+      .map((e) => e.amount),
   );
   const received = sum(
     entries
       .filter(
-        (e) => e.kind === "income" && e.paidDate && e.paidDate <= month + "-31",
+        (e) =>
+          e.kind === "income" &&
+          !isBenefitAccount(s, e.accountId) &&
+          e.paidDate &&
+          e.paidDate <= month + "-31",
       )
       .map((e) => e.amount),
   );
@@ -121,12 +154,18 @@ export function summarize(s: State, month: string) {
     sum(entries.filter((e) => e.kind === "expense").map((e) => e.amount)) -
     refunds;
   const end = month + "-31";
-  const latestOpeningDate = s.accounts.reduce(
-    (latest, a) => (a.openingDate > latest ? a.openingDate : latest),
-    "",
-  );
+  const latestOpeningDate = s.accounts
+    .filter((a) => a.kind !== "benefit")
+    .reduce(
+      (latest, a) => (a.openingDate > latest ? a.openingDate : latest),
+      "",
+    );
   const cash =
-    sum(s.accounts.map((a) => accountBalance(s, a.id, end))) +
+    sum(
+      s.accounts
+        .filter((a) => a.kind !== "benefit")
+        .map((a) => accountBalance(s, a.id, end)),
+    ) +
     sum(
       s.entries
         .filter(
@@ -144,22 +183,20 @@ export function summarize(s: State, month: string) {
       .filter(
         (e) =>
           e.kind === "income" &&
+          !isBenefitAccount(s, e.accountId) &&
           (!e.paidDate || e.paidDate > end) &&
           e.date <= end,
       )
       .map((e) => e.amount),
   );
-  const pendingCash = sum(
-    s.entries
-      .filter(
-        (e) =>
-          e.kind === "expense" &&
-          !e.cardId &&
-          (!e.paidDate || e.paidDate > end) &&
-          e.date <= end,
-      )
-      .map((e) => e.amount),
+  const pendingEntries = s.entries.filter(
+    (e) =>
+      e.kind === "expense" &&
+      !e.cardId &&
+      (!e.paidDate || e.paidDate > end) &&
+      e.date <= end,
   );
+  const pendingCash = sum(pendingEntries.map((entry) => freeExpense(s, entry)));
   const outstanding = sum(
     s.cards.map((c) =>
       sum(
@@ -174,7 +211,14 @@ export function summarize(s: State, month: string) {
   const contributed = sum(
     s.movements.filter((m) => m.date.startsWith(month)).map((m) => m.amount),
   );
-  const result = income - expense;
+  const result =
+    income -
+    sum(
+      entries
+        .filter((e) => e.kind === "expense")
+        .map((entry) => freeExpense(s, entry)),
+    ) +
+    refunds;
   const budget = s.budgets[month] ?? DEFAULT_BUDGET;
   const capacity = Math.max(
     0,
@@ -188,7 +232,7 @@ export function summarize(s: State, month: string) {
             e.kind === "expense" &&
             s.categories.find((c) => c.id === e.categoryId)?.group !== "fun",
         )
-        .map((e) => e.amount),
+        .map((e) => freeExpense(s, e)),
     ) -
       sum(
         s.refunds
@@ -210,7 +254,7 @@ export function summarize(s: State, month: string) {
             e.kind === "expense" &&
             s.categories.find((c) => c.id === e.categoryId)?.group === "fun",
         )
-        .map((e) => e.amount),
+        .map((e) => freeExpense(s, e)),
     ) -
       sum(
         s.refunds
@@ -239,6 +283,7 @@ export function summarize(s: State, month: string) {
   ];
   return {
     income,
+    benefitIncome,
     received,
     expense,
     cash,
@@ -246,7 +291,7 @@ export function summarize(s: State, month: string) {
     result,
     capacity,
     contributed,
-    pending: pendingCash + outstanding,
+    pending: sum(pendingEntries.map((e) => e.amount)) + outstanding,
     budget,
     limits: allocate(income, budget.percentages),
     used,
@@ -334,7 +379,9 @@ export function discretionarySpending(s: State, month: string) {
         rows.filter((entry) => entry.cardId).map((entry) => entry.amount),
       );
       const cash = sum(
-        rows.filter((entry) => !entry.cardId).map((entry) => entry.amount),
+        rows
+          .filter((entry) => !entry.cardId)
+          .map((entry) => freeExpense(s, entry)),
       );
       const refunds = sum(
         s.refunds
@@ -363,7 +410,13 @@ export function splitProportional(s: State, month: string) {
     s.entries
       .filter(
         (e) =>
-          e.kind === "income" && e.person === "a" && e.date.startsWith(month),
+          e.kind === "income" &&
+          e.person === "a" &&
+          e.date.startsWith(month) &&
+          !s.accounts.some(
+            (account) =>
+              account.id === e.accountId && account.kind === "benefit",
+          ),
       )
       .map((e) => e.amount),
   );
@@ -371,7 +424,13 @@ export function splitProportional(s: State, month: string) {
     s.entries
       .filter(
         (e) =>
-          e.kind === "income" && e.person === "b" && e.date.startsWith(month),
+          e.kind === "income" &&
+          e.person === "b" &&
+          e.date.startsWith(month) &&
+          !s.accounts.some(
+            (account) =>
+              account.id === e.accountId && account.kind === "benefit",
+          ),
       )
       .map((e) => e.amount),
   );

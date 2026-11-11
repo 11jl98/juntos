@@ -18,6 +18,7 @@ export function Entries({
   open,
   dispatch,
   person = "all",
+  onPersonChange,
 }: FinanceProps) {
   const [search, setSearch] = useState(""),
     [status, setStatus] = useState("all");
@@ -101,6 +102,17 @@ export function Entries({
               aria-label="Buscar lançamento"
             />
           </label>
+          {onPersonChange && (
+            <select
+              aria-label="Filtrar pessoa"
+              value={person}
+              onChange={(e) => onPersonChange(e.target.value)}
+            >
+              <option value="all">Nós dois</option>
+              <option value="a">{s.names[0]}</option>
+              <option value="b">{s.names[1]}</option>
+            </select>
+          )}
           <select
             aria-label="Situação"
             value={status}
@@ -116,7 +128,7 @@ export function Entries({
           </Button>
         </div>
         {rows.length ? (
-          <div className="table-wrap">
+          <div className="table-wrap entries-table">
             <table>
               <thead>
                 <tr>
@@ -159,8 +171,8 @@ export function Entries({
                         </small>
                       )}
                     </td>
-                    <td>{dateLabel(e.date)}</td>
-                    <td>
+                    <td data-label="Data / competência">{dateLabel(e.date)}</td>
+                    <td data-label="Responsáveis">
                       {e.kind === "income" || e.splitA === 100 || e.splitA === 0
                         ? s.names[
                             e.kind === "income"
@@ -173,7 +185,7 @@ export function Entries({
                           ]
                         : `${s.names[0]} e ${s.names[1]}`}
                     </td>
-                    <td>
+                    <td data-label="Divisão">
                       {e.kind === "income"
                         ? "—"
                         : e.splitA === 100 || e.splitA === 0
@@ -181,12 +193,13 @@ export function Entries({
                           : `${e.splitA}% / ${100 - e.splitA}%`}
                     </td>
                     <td
+                      data-label="Valor"
                       className={`amount ${e.kind === "income" ? "positive" : ""}`}
                     >
                       {e.kind === "income" ? "+" : "−"}
                       {brl(e.amount)}
                     </td>
-                    <td>
+                    <td data-label="Situação">
                       <span
                         className={`pill ${e.paidDate ? "green" : e.date < today() && !e.cardId ? "coral" : "amber"}`}
                       >
@@ -199,7 +212,7 @@ export function Entries({
                               : "Pendente"}
                       </span>
                     </td>
-                    <td>
+                    <td data-label="Ações">
                       <div className="row-actions">
                         {!e.cardId && (
                           <>

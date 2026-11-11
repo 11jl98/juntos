@@ -14,6 +14,7 @@ import { Forms } from "../src/components/forms";
 import { Auth } from "../src/components/auth";
 import { Cards } from "../src/components/cards";
 import { Entries } from "../src/components/entries";
+import { Overview } from "../src/components/overview";
 import { Planning } from "../src/components/planning";
 import { assertRevision } from "../src/domain/revision";
 import { DEFAULT_BUDGET } from "../src/domain/types";
@@ -176,6 +177,56 @@ test("expense form explains automatic debits from primary accounts", () => {
   assert.match(html, /conta não precisa ser selecionada/);
   assert.doesNotMatch(html, /Quem paga/);
 });
+test("individual expense editor offers the responsible person's benefit account", () => {
+  const s = fixture();
+  s.accounts.push({
+    id: "va",
+    name: "VA Mercado",
+    owner: "a",
+    opening: 0,
+    openingDate: "2026-01-01",
+    primary: false,
+    kind: "benefit",
+  });
+  s.entries.push({
+    id: "market-va",
+    kind: "expense",
+    description: "Mercado",
+    amount: 81400,
+    date: "2026-11-10",
+    categoryId: "market",
+    accountId: "va",
+    paymentAccountId: "va",
+    person: "a",
+    splitA: 100,
+    paidDate: null,
+  });
+  const html = renderToStaticMarkup(
+    createElement(Forms, {
+      state: s,
+      month: "2026-11",
+      dialog: { kind: "entry", id: "market-va" },
+      onClose: () => {},
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  assert.match(html, /Conta usada para pagar/);
+  assert.match(html, /value="va" selected=""/);
+  assert.match(html, /VA Mercado · Vale-alimentação/);
+  assert.doesNotMatch(html, /value="b">Beto/);
+  const accountHtml = renderToStaticMarkup(
+    createElement(Forms, {
+      state: s,
+      month: "2026-11",
+      dialog: { kind: "account", id: "va" },
+      onClose: () => {},
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  assert.match(accountHtml, /value="benefit" selected=""/);
+});
 test("income form identifies the owner of each optional account", () => {
   const s = fixture();
   s.entries.push({
@@ -305,6 +356,28 @@ test("card subscriptions are managed in Cards, not listed in Entries", () => {
   assert.match(cardsHtml, /Netflix/);
   assert.match(cardsHtml, /Editar futuras/);
   assert.doesNotMatch(entriesHtml, /Netflix/);
+});
+test("financial tables expose mobile labels and retain their actions", () => {
+  const s = charge(fixture(), "purchase-mobile", "2026-11");
+  const props = {
+    state: s,
+    month: "2026-11",
+    open: () => {},
+    dispatch: async () => true,
+    onPersonChange: () => {},
+  };
+  const entries = renderToStaticMarkup(createElement(Entries, props));
+  const overview = renderToStaticMarkup(createElement(Overview, props));
+  const cards = renderToStaticMarkup(createElement(Cards, props));
+  assert.match(entries, /aria-label="Filtrar pessoa"/);
+  assert.match(entries, /data-label="Divisão"/);
+  assert.match(entries, /data-label="Ações"/);
+  assert.match(entries, /Estornar/);
+  assert.match(overview, /data-label="Categoria"/);
+  assert.match(overview, /data-label="Valor"/);
+  assert.match(cards, /data-label="Vencimento"/);
+  assert.match(cards, /data-label="Ajuste"/);
+  assert.match(cards, /Estornar/);
 });
 test("account creation is hidden unless the visitor has a household invitation", () => {
   const login = renderToStaticMarkup(

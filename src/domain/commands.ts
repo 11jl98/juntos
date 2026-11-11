@@ -110,13 +110,25 @@ function accountDate(s: State, id: string, date: string) {
   if (date < a.openingDate)
     throw new Error("A data é anterior ao saldo inicial da conta.");
 }
+function requireCashAccount(s: State, id: string) {
+  const account = requireItem(s.accounts, id, "Conta");
+  if (account.kind === "benefit")
+    throw new Error(
+      "Vale-alimentação não pode ser usado para esta movimentação.",
+    );
+}
 function expenseAccountDebits(
   s: State,
   amount: number,
   splitA: number,
   date: string,
   preferred?: Entry["accountDebits"],
+  paymentAccountId?: string,
 ) {
+  if (paymentAccountId && splitA !== 0 && splitA !== 100)
+    throw new Error(
+      "Escolha uma conta específica apenas para despesa individual.",
+    );
   return allocate(amount, [splitA, 100 - splitA]).flatMap((share, index) => {
     if (!share) return [];
     const owner = index === 0 ? "a" : "b";
@@ -124,13 +136,17 @@ function expenseAccountDebits(
       (debit) =>
         s.accounts.find((a) => a.id === debit.accountId)?.owner === owner,
     );
-    const target = previous
-      ? requireItem(s.accounts, previous.accountId, "Conta principal")
-      : primaryAccount(s, owner);
+    const target = paymentAccountId
+      ? requireItem(s.accounts, paymentAccountId, "Conta de pagamento")
+      : previous
+        ? requireItem(s.accounts, previous.accountId, "Conta principal")
+        : primaryAccount(s, owner);
     if (!target)
       throw new Error(
         `Defina a conta principal para ${s.names[index]} antes de pagar esta despesa.`,
       );
+    if (target.owner !== owner)
+      throw new Error("A conta de pagamento deve pertencer ao responsável.");
     accountDate(s, target.id, date);
     return [{ accountId: target.id, amount: share }];
   });
@@ -140,6 +156,21 @@ function validateEntry(s: State, e: Entry) {
   if (e.accountId) requireItem(s.accounts, e.accountId, "Conta");
   else if (e.kind === "expense")
     throw new Error("Despesas precisam de uma conta.");
+  if (e.paymentAccountId) {
+    const target = requireItem(
+      s.accounts,
+      e.paymentAccountId,
+      "Conta de pagamento",
+    );
+    if (
+      e.kind !== "expense" ||
+      (e.splitA !== 0 && e.splitA !== 100) ||
+      target.owner !== (e.splitA === 100 ? "a" : "b")
+    )
+      throw new Error(
+        "A conta de pagamento deve pertencer ao responsável da despesa individual.",
+      );
+  }
   if (e.paidDate && e.accountId) accountDate(s, e.accountId, e.paidDate);
   if (e.cardId)
     throw new Error("Use o formulário de compra para lançamentos no cartão.");
@@ -165,30 +196,50 @@ export function applyCommand(
         (s.entries.some(
           (e) =>
             e.accountId === old.id ||
+            e.paymentAccountId === old.id ||
             e.accountDebits?.some((debit) => debit.accountId === old.id),
         ) ||
           [...s.payments, ...s.movements, ...s.rules].some(
             (e) => e.accountId === old.id,
           ) ||
+          s.rules.some((rule) => rule.paymentAccountId === old.id) ||
           s.transfers.some((t) => t.from === old.id || t.to === old.id))
       )
         throw new Error(
           "Conta com histórico: mantenha o titular e a data inicial.",
         );
       const value = { ...c.value };
+      if (
+        value.kind === "benefit" &&
+        old?.kind !== "benefit" &&
+        (s.payments.some((payment) => payment.accountId === value.id) ||
+          s.movements.some((movement) => movement.accountId === value.id) ||
+          s.transfers.some(
+            (transfer) =>
+              transfer.from === value.id || transfer.to === value.id,
+          ))
+      )
+        throw new Error(
+          "Conta com transferências, aportes ou faturas não pode ser convertida em vale-alimentação.",
+        );
+      if (value.kind === "benefit") value.primary = false;
       if (old?.primary && (!value.primary || old.owner !== value.owner)) {
         const replacement = s.accounts.find(
-          (a) => a.id !== old.id && a.owner === old.owner,
+          (a) =>
+            a.id !== old.id && a.owner === old.owner && a.kind !== "benefit",
         );
         if (replacement) replacement.primary = true;
-        else if (old.owner === value.owner) value.primary = true;
+        else if (old.owner === value.owner && value.kind !== "benefit")
+          value.primary = true;
       }
       if (value.primary) {
         s.accounts = s.accounts.map((a) =>
           a.owner === value.owner ? { ...a, primary: false } : a,
         );
-      } else if (!old) {
-        const owned = s.accounts.filter((a) => a.owner === value.owner);
+      } else if (!old && value.kind !== "benefit") {
+        const owned = s.accounts.filter(
+          (a) => a.owner === value.owner && a.kind !== "benefit",
+        );
         if (!owned.some((a) => a.primary)) {
           if (owned.length === 1) owned[0].primary = true;
           else if (owned.length === 0) value.primary = true;
@@ -231,6 +282,7 @@ export function applyCommand(
           value.splitA,
           value.paidDate,
           old?.accountDebits,
+          value.paymentAccountId,
         );
         value.accountId = value.accountDebits[0].accountId;
       } else if (!value.paidDate) {
@@ -255,6 +307,8 @@ export function applyCommand(
           e.amount,
           e.splitA,
           c.date,
+          undefined,
+          e.paymentAccountId,
         );
         e.accountDebits = accountDebits;
         e.accountId = accountDebits[0].accountId;
@@ -302,6 +356,7 @@ export function applyCommand(
     case "payInvoice": {
       fresh(s, c.id);
       requireItem(s.cards, c.cardId, "Cartão");
+      requireCashAccount(s, c.accountId);
       accountDate(s, c.accountId, c.date);
       const inv = invoice(s, c.cardId, c.month);
       if (c.amount > inv.open)
@@ -347,6 +402,7 @@ export function applyCommand(
     case "movement": {
       fresh(s, c.value.id);
       requireItem(s.goals, c.value.goalId, "Meta");
+      requireCashAccount(s, c.value.accountId);
       accountDate(s, c.value.accountId, c.value.date);
       const reserved = s.movements
         .filter((m) => m.goalId === c.value.goalId && m.planned && m.amount < 0)
@@ -369,6 +425,8 @@ export function applyCommand(
     }
     case "transfer": {
       fresh(s, c.id);
+      requireCashAccount(s, c.from);
+      requireCashAccount(s, c.to);
       accountDate(s, c.from, c.date);
       accountDate(s, c.to, c.date);
       if (c.from === c.to) throw new Error("Escolha duas contas diferentes.");
@@ -389,6 +447,22 @@ export function applyCommand(
         throw new Error("Despesas recorrentes precisam de uma conta.");
       if (c.value.cardId && c.value.kind !== "expense")
         throw new Error("Assinaturas recorrentes precisam ser despesas.");
+      if (c.value.paymentAccountId) {
+        const target = requireItem(
+          s.accounts,
+          c.value.paymentAccountId,
+          "Conta de pagamento",
+        );
+        if (
+          c.value.cardId ||
+          c.value.kind !== "expense" ||
+          (c.value.splitA !== 0 && c.value.splitA !== 100) ||
+          target.owner !== (c.value.splitA === 100 ? "a" : "b")
+        )
+          throw new Error(
+            "A conta de pagamento deve pertencer ao responsável da despesa individual.",
+          );
+      }
       requireItem(s.categories, c.value.categoryId, "Categoria");
       if (c.value.end && c.value.end < c.value.start)
         throw new Error("Fim anterior ao início.");
@@ -442,6 +516,7 @@ export function applyCommand(
               date: due,
               categoryId: r.categoryId,
               accountId: r.cardId ? undefined : r.accountId,
+              paymentAccountId: r.paymentAccountId,
               person: r.person,
               splitA: r.splitA,
               paidDate: null,
@@ -507,10 +582,13 @@ export function applyCommand(
       } else if (c.entity === "account") {
         if (
           s.entries.some((e) => e.accountId === c.id) ||
+          s.entries.some((e) => e.paymentAccountId === c.id) ||
           s.entries.some((e) =>
             e.accountDebits?.some((debit) => debit.accountId === c.id),
           ) ||
-          s.rules.some((e) => e.accountId === c.id) ||
+          s.rules.some(
+            (e) => e.accountId === c.id || e.paymentAccountId === c.id,
+          ) ||
           s.payments.some((p) => p.accountId === c.id) ||
           s.movements.some((m) => m.accountId === c.id) ||
           s.transfers.some((t) => t.from === c.id || t.to === c.id)

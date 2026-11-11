@@ -379,6 +379,183 @@ test("cash payment cannot double count expense or pay twice", () => {
     ),
   );
 });
+test("individual expenses debit the selected account when confirmed", () => {
+  let state = fixture();
+  state.accounts.push({
+    id: "va",
+    name: "Vale alimentação",
+    owner: "a",
+    opening: 0,
+    openingDate: "2026-01-01",
+    primary: false,
+  });
+  state = applyCommand(
+    state,
+    {
+      type: "entry",
+      value: {
+        id: "market-va",
+        kind: "expense",
+        description: "Mercado",
+        amount: 20000,
+        date: "2026-11-10",
+        categoryId: "market",
+        accountId: "va",
+        paymentAccountId: "va",
+        person: "a",
+        splitA: 100,
+        paidDate: null,
+      },
+    },
+    "ana",
+    "2026-11-10",
+  );
+  state = applyCommand(
+    state,
+    { type: "payEntry", id: "market-va", date: "2026-11-11" },
+    "ana",
+    "2026-11-11",
+  );
+  assert.equal(accountBalance(state, "va"), -20000);
+  assert.equal(accountBalance(state, "a"), 0);
+  assert.deepEqual(state.entries[0].accountDebits, [
+    { accountId: "va", amount: 20000 },
+  ]);
+});
+test("food benefit credits and purchases do not inflate cash or goal capacity", () => {
+  let state = fixture();
+  state.accounts.push({
+    id: "va",
+    name: "Vale alimentação",
+    owner: "a",
+    opening: 0,
+    openingDate: "2026-01-01",
+    primary: false,
+    kind: "benefit",
+  });
+  for (const [id, person, accountId, amount] of [
+    ["salary-a", "a", "a", 300000],
+    ["salary-b", "b", "b", 200000],
+    ["benefit", "a", "va", 50000],
+  ] as const) {
+    state = applyCommand(
+      state,
+      {
+        type: "entry",
+        value: {
+          id,
+          kind: "income",
+          description: id,
+          amount,
+          date: "2026-11-05",
+          categoryId: "salary",
+          accountId,
+          person,
+          splitA: 50,
+          paidDate: "2026-11-05",
+        },
+      },
+      "ana",
+      "2026-11-05",
+    );
+  }
+  state = applyCommand(
+    state,
+    {
+      type: "entry",
+      value: {
+        id: "market-va",
+        kind: "expense",
+        description: "Mercado",
+        amount: 20000,
+        date: "2026-11-06",
+        categoryId: "market",
+        accountId: "va",
+        paymentAccountId: "va",
+        person: "a",
+        splitA: 100,
+        paidDate: "2026-11-06",
+      },
+    },
+    "ana",
+    "2026-11-06",
+  );
+  const summary = summarize(state, "2026-11");
+  assert.equal(accountBalance(state, "va"), 30000);
+  assert.equal(summary.income, 500000);
+  assert.equal(summary.expense, 20000);
+  assert.equal(summary.cash, 500000);
+  assert.equal(summary.projected, 500000);
+  assert.equal(summary.capacity, 500000);
+  assert.equal(summary.used[0], 0);
+  assert.equal(splitProportional(state, "2026-11"), 60);
+  state = applyCommand(
+    state,
+    {
+      type: "entry",
+      value: {
+        id: "pending-va",
+        kind: "expense",
+        description: "Mercado previsto",
+        amount: 10000,
+        date: "2026-11-20",
+        categoryId: "market",
+        accountId: "va",
+        paymentAccountId: "va",
+        person: "a",
+        splitA: 100,
+        paidDate: null,
+      },
+    },
+    "ana",
+    "2026-11-10",
+  );
+  const pending = summarize(state, "2026-11");
+  assert.equal(pending.pending, 10000);
+  assert.equal(pending.projected, 500000);
+  assert.equal(pending.capacity, 500000);
+  assert.throws(() =>
+    applyCommand(
+      state,
+      {
+        type: "transfer",
+        id: "invalid-va",
+        from: "va",
+        to: "a",
+        amount: 100,
+        date: "2026-11-10",
+        settle: false,
+      },
+      "ana",
+      "2026-11-10",
+    ),
+  );
+});
+test("individual expense rejects an account belonging to the other person", () => {
+  assert.throws(() =>
+    applyCommand(
+      fixture(),
+      {
+        type: "entry",
+        value: {
+          id: "wrong-owner",
+          kind: "expense",
+          description: "Mercado",
+          amount: 100,
+          date: "2026-11-10",
+          categoryId: "market",
+          accountId: "b",
+          paymentAccountId: "b",
+          person: "a",
+          splitA: 100,
+          paidDate: null,
+        },
+      },
+      "ana",
+      "2026-11-10",
+    ),
+  );
+});
 test("paid shared expenses debit each primary account by its exact share", () => {
   let s = fixture();
   s = applyCommand(
