@@ -100,6 +100,87 @@ export function accountBalance(s: State, id: string, until = "9999-12-31") {
     )
   );
 }
+export function accountOutflows(s: State, id: string, month: string) {
+  const account = s.accounts.find((account) => account.id === id);
+  if (!account) return [];
+  const inPeriod = (date: string) =>
+    date > account.openingDate && date.startsWith(month);
+  const rows: {
+    id: string;
+    date: string;
+    description: string;
+    kind: string;
+    amount: number;
+  }[] = [];
+  for (const entry of s.entries) {
+    if (
+      entry.kind !== "expense" ||
+      entry.cardId ||
+      !entry.paidDate ||
+      !inPeriod(entry.paidDate)
+    )
+      continue;
+    const amount = entry.accountDebits
+      ? sum(
+          entry.accountDebits
+            .filter((debit) => debit.accountId === id)
+            .map((debit) => debit.amount),
+        )
+      : entry.accountId === id
+        ? entry.amount
+        : 0;
+    if (amount > 0)
+      rows.push({
+        id: `entry-${entry.id}`,
+        date: entry.paidDate,
+        description: entry.description,
+        kind: "Despesa",
+        amount,
+      });
+  }
+  for (const payment of s.payments) {
+    if (payment.accountId !== id || !inPeriod(payment.date)) continue;
+    rows.push({
+      id: `payment-${payment.id}`,
+      date: payment.date,
+      description: `${s.cards.find((card) => card.id === payment.cardId)?.name ?? "Cartão"} · ${payment.month.split("-").reverse().join("/")}`,
+      kind: "Pagamento de fatura",
+      amount: payment.amount,
+    });
+  }
+  for (const movement of s.movements) {
+    if (
+      movement.accountId !== id ||
+      movement.planned ||
+      movement.amount <= 0 ||
+      !inPeriod(movement.date)
+    )
+      continue;
+    rows.push({
+      id: `movement-${movement.id}`,
+      date: movement.date,
+      description:
+        s.goals.find((goal) => goal.id === movement.goalId)?.name ?? "Meta",
+      kind: "Aporte em meta",
+      amount: movement.amount,
+    });
+  }
+  for (const transfer of s.transfers) {
+    if (transfer.from !== id || transfer.to === id || !inPeriod(transfer.date))
+      continue;
+    rows.push({
+      id: `transfer-${transfer.id}`,
+      date: transfer.date,
+      description: `Para ${s.accounts.find((target) => target.id === transfer.to)?.name ?? "Conta"}`,
+      kind: transfer.settle ? "Acerto entre o casal" : "Transferência",
+      amount: transfer.amount,
+    });
+  }
+  return rows.sort(
+    (left, right) =>
+      right.date.localeCompare(left.date) || left.id.localeCompare(right.id),
+  );
+}
 export function invoice(s: State, cardId: string, month: string) {
   return invoiceLedger(s, cardId, month).get(month)!;
 }

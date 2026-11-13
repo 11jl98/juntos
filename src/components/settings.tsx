@@ -8,10 +8,15 @@ import {
   Users,
   Copy,
   Wallet,
+  History,
   Download as DownloadIcon,
 } from "lucide-react";
-import { accountBalance, primaryAccount } from "@/domain/finance";
-import { brl, money, today } from "@/domain/money";
+import {
+  accountBalance,
+  accountOutflows,
+  primaryAccount,
+} from "@/domain/finance";
+import { brl, dateLabel, money, monthLabel, today } from "@/domain/money";
 import { parseCSV, exportCSV } from "@/domain/csv";
 import { entrySchema, type Entry } from "@/domain/types";
 import { Section, Button, Field, Download, type FinanceProps } from "./ui";
@@ -25,6 +30,51 @@ const fields = [
   "pessoa",
   "status",
 ];
+function AccountHistory({
+  state,
+  accountId,
+  month,
+}: {
+  state: FinanceProps["state"];
+  accountId: string;
+  month: string;
+}) {
+  const rows = accountOutflows(state, accountId, month);
+  const account = state.accounts.find((account) => account.id === accountId);
+  return (
+    <details className="account-history">
+      <summary aria-label={`Histórico de saídas de ${account?.name}`}>
+        <History size={16} aria-hidden="true" />
+        Histórico de saídas
+      </summary>
+      <div className="spread account-history-heading">
+        <span>{monthLabel(month)}</span>
+        <strong>
+          Total: {brl(rows.reduce((total, row) => total + row.amount, 0))}
+        </strong>
+      </div>
+      {rows.length ? (
+        <ul className="account-outflows">
+          {rows.map((row) => (
+            <li key={row.id}>
+              <div>
+                <strong>{row.description}</strong>
+                <small className="block muted">
+                  {dateLabel(row.date)} · {row.kind}
+                </small>
+              </div>
+              <span className="amount">−{brl(row.amount)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="muted" role="status">
+          Nenhuma saída nesta conta no mês selecionado.
+        </p>
+      )}
+    </details>
+  );
+}
 export function Settings({
   state: s,
   month,
@@ -284,6 +334,7 @@ export function Settings({
               >
                 <Trash2 size={16} />
               </button>
+              <AccountHistory state={s} accountId={a.id} month={month} />
             </div>
           ))}
           {!s.accounts.length && (
@@ -497,25 +548,6 @@ export function Settings({
           {message}
         </p>
       )}
-      <Section
-        title="Atividade do espaço"
-        subtitle="Últimas alterações; identificação de autoria preservada"
-      >
-        <div className="audit-list">
-          {s.audit
-            .slice(-8)
-            .reverse()
-            .map((a, i) => (
-              <p key={i}>
-                <span>{new Date(a.at).toLocaleString("pt-BR")}</span>
-                <strong>{a.action.split(":")[0]}</strong>
-                <small>
-                  {a.actor === "demo" ? "Demonstração" : a.actor.slice(0, 8)}
-                </small>
-              </p>
-            ))}
-        </div>
-      </Section>
     </>
   );
 }

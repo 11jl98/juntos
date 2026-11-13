@@ -2,7 +2,10 @@
 
 ## Executado
 
-- **50 testes automatizados**: centavos, rateio por pessoa, débitos distribuídos entre contas principais, snapshot de saldo sem dupla contagem, simulação de aluguel, oportunidades em gastos discricionários, assinaturas mensais em cartão e encerramento futuro, limite de um espaço, isolamento RLS, convites, parcelas, fechamento em fevereiro, competência/caixa, aportes, percentuais, recorrências, meses não visitados, estornos, crédito transportado entre faturas e acertos entre pessoas.
+- **58 testes automatizados**: centavos, rateio por pessoa, débitos distribuídos entre contas principais, snapshot de saldo sem dupla contagem, simulação de aluguel, oportunidades em gastos discricionários, assinaturas mensais em cartão e encerramento futuro, limite de um espaço, isolamento RLS, convites, parcelas, fechamento em fevereiro, competência/caixa, aportes, percentuais, recorrências, meses não visitados, estornos, crédito transportado entre faturas e acertos entre pessoas.
+- Histórico de saídas por conta: data efetiva de pagamento, corte do saldo inicial, rateio em centavos, registros antigos, fatura parcial sem duplicar compras, aportes realizados e transferências de saída.
+- Regressão de interface: valores por pessoa em despesas compartilhadas e individuais, filtro mensal, estado vazio e remoção da atividade da tela sem apagar a auditoria.
+- Verificação em navegador no modo demonstração (2026-11-13): desktop de 1440 px e celular de 390 px, capturas de tela do histórico e da divisão, abertura e fechamento por teclado, troca de mês e ausência de rolagem horizontal nas telas alteradas.
 - Regressão de formulário: editar uma despesa conserva o percentual personalizado.
 - Controle de revisão: impede salvar formulário aberto antes de outra atualização.
 - Teste de PostgreSQL embarcado (PGlite) executando a migração real: RLS, convite vinculado ao e-mail, uso único, dois membros, escrita restrita ao serviço, CAS e deduplicação de requisições.
@@ -18,7 +21,7 @@ A revisão independente identificou casos de calendário e histórico de transfe
 ## Limites da validação
 
 - Não foram fornecidas contas/credenciais Supabase ou Vercel. Nenhum banco remoto foi criado, nenhuma conta real foi cadastrada, nenhum e-mail real foi enviado e nenhum deploy foi realizado.
-- O navegador remoto deste ambiente não conseguiu acessar a prévia localhost. Portanto, **não houve homologação visual/interativa completa em navegador nem instalação real em iOS/Android**. Build, testes de renderização e verificações HTTP não substituem esses testes.
+- A verificação visual/interativa atual cobre as telas alteradas de contas e lançamentos no modo demonstração. Ainda **não houve homologação completa com sessões reais nem instalação em iOS/Android**; a validação local não substitui esses testes.
 - PGlite simula o contexto Auth do Supabase; confirmar SMTP, URLs de redirect e duas sessões reais após configurar o projeto.
 
 ## Homologação antes dos dados reais

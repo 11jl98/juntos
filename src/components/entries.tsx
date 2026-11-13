@@ -9,7 +9,7 @@ import {
   Repeat2,
   ArrowLeftRight,
 } from "lucide-react";
-import { brl, dateLabel, today } from "@/domain/money";
+import { allocate, brl, dateLabel, today } from "@/domain/money";
 import { exportCSV } from "@/domain/csv";
 import { Button, Section, Empty, Download, type FinanceProps } from "./ui";
 export function Entries({
@@ -186,11 +186,25 @@ export function Entries({
                         : `${s.names[0]} e ${s.names[1]}`}
                     </td>
                     <td data-label="Divisão">
-                      {e.kind === "income"
-                        ? "—"
-                        : e.splitA === 100 || e.splitA === 0
-                          ? `Individual · ${s.names[e.splitA === 100 ? 0 : 1]}`
-                          : `${e.splitA}% / ${100 - e.splitA}%`}
+                      {e.kind === "income" ? (
+                        "—"
+                      ) : (
+                        <div className="entry-split">
+                          <span>
+                            {e.splitA === 100 || e.splitA === 0
+                              ? "Individual"
+                              : `${e.splitA}% / ${100 - e.splitA}%`}
+                          </span>
+                          {allocate(e.amount, [e.splitA, 100 - e.splitA]).map(
+                            (share, index) =>
+                              (index === 0 ? e.splitA > 0 : e.splitA < 100) && (
+                                <small className="block muted" key={index}>
+                                  {s.names[index]}: {brl(share)}
+                                </small>
+                              ),
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td
                       data-label="Valor"

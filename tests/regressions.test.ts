@@ -16,6 +16,8 @@ import { Cards } from "../src/components/cards";
 import { Entries } from "../src/components/entries";
 import { Overview } from "../src/components/overview";
 import { Planning } from "../src/components/planning";
+import { Settings } from "../src/components/settings";
+import { brl } from "../src/domain/money";
 import { assertRevision } from "../src/domain/revision";
 import { DEFAULT_BUDGET } from "../src/domain/types";
 function fixture() {
@@ -356,6 +358,101 @@ test("card subscriptions are managed in Cards, not listed in Entries", () => {
   assert.match(cardsHtml, /Netflix/);
   assert.match(cardsHtml, /Editar futuras/);
   assert.doesNotMatch(entriesHtml, /Netflix/);
+});
+test("settings replaces activity with account outflows without deleting audit data", () => {
+  const s = fixture();
+  s.audit.push({
+    actor: "ana",
+    action: "entry:private-audit",
+    at: "2026-11-10T12:00:00Z",
+  });
+  s.entries.push({
+    id: "shared-history",
+    kind: "expense",
+    description: "Mercado compartilhado",
+    amount: 10001,
+    date: "2026-10-25",
+    paidDate: "2026-11-10",
+    categoryId: "food",
+    accountId: "a",
+    person: "a",
+    splitA: 70,
+    accountDebits: [
+      { accountId: "a", amount: 7001 },
+      { accountId: "b", amount: 3000 },
+    ],
+  });
+  const audit = structuredClone(s.audit);
+  const html = renderToStaticMarkup(
+    createElement(Settings, {
+      state: s,
+      month: "2026-11",
+      open: () => {},
+      dispatch: async () => true,
+      invite: async () => "",
+      mode: "demo",
+    }),
+  );
+  assert.match(html, /Histórico de saídas de Ana/);
+  assert.match(html, /Mercado compartilhado/);
+  assert.match(html, /10\/11\/2026/);
+  assert.ok(html.includes(brl(7001)));
+  assert.ok(html.includes(brl(3000)));
+  assert.doesNotMatch(html, /Atividade do espaço|private-audit/);
+  assert.deepEqual(s.audit, audit);
+  const empty = renderToStaticMarkup(
+    createElement(Settings, {
+      state: s,
+      month: "2026-12",
+      open: () => {},
+      dispatch: async () => true,
+      invite: async () => "",
+      mode: "demo",
+    }),
+  );
+  assert.match(empty, /Nenhuma saída nesta conta/);
+  assert.doesNotMatch(empty, /Mercado compartilhado/);
+});
+test("entries show exact personal amounts for shared and individual splits", () => {
+  const s = fixture();
+  s.names = ["Ana", "Beto"];
+  const base = {
+    kind: "expense" as const,
+    amount: 10001,
+    date: "2026-11-10",
+    paidDate: null,
+    categoryId: "food",
+    accountId: "a",
+    person: "a" as const,
+  };
+  s.entries = [
+    { ...base, id: "shared", description: "Compartilhada", splitA: 70 },
+    { ...base, id: "individual-a", description: "Individual Ana", splitA: 100 },
+    { ...base, id: "individual-b", description: "Individual Beto", splitA: 0 },
+    {
+      ...base,
+      id: "income",
+      description: "Salário",
+      kind: "income",
+      splitA: 50,
+    },
+  ];
+  const html = renderToStaticMarkup(
+    createElement(Entries, {
+      state: s,
+      month: "2026-11",
+      open: () => {},
+      dispatch: async () => true,
+    }),
+  );
+  const rows = html.split("<tbody>")[1].split("</tbody>")[0].split("</tr>");
+  assert.ok(rows[0].includes(`Ana: ${brl(7001)}`));
+  assert.ok(rows[0].includes(`Beto: ${brl(3000)}`));
+  assert.ok(rows[1].includes(`Ana: ${brl(10001)}`));
+  assert.ok(!rows[1].includes("Beto:"));
+  assert.ok(rows[2].includes(`Beto: ${brl(10001)}`));
+  assert.ok(!rows[2].includes("Ana:"));
+  assert.ok(!rows[3].includes('class="entry-split"'));
 });
 test("financial tables expose mobile labels and retain their actions", () => {
   const s = charge(fixture(), "purchase-mobile", "2026-11");

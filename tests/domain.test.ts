@@ -12,6 +12,7 @@ import {
   summarize,
   goalPlans,
   accountBalance,
+  accountOutflows,
   settlement,
   splitProportional,
   primaryAccount,
@@ -56,6 +57,124 @@ function fixture() {
   );
   return s;
 }
+test("account outflows follow paid dates and balance rules without counting card purchases twice", () => {
+  const s = fixture();
+  s.accounts[0].openingDate = "2026-11-01";
+  const base = {
+    kind: "expense" as const,
+    description: "Mercado",
+    amount: 10001,
+    date: "2026-10-25",
+    categoryId: "food",
+    accountId: "a",
+    person: "a" as const,
+    splitA: 70,
+    paidDate: "2026-11-02",
+  };
+  s.entries = [
+    {
+      ...base,
+      id: "shared",
+      accountDebits: [
+        { accountId: "a", amount: 7001 },
+        { accountId: "b", amount: 3000 },
+      ],
+    },
+    { ...base, id: "legacy", amount: 500 },
+    { ...base, id: "pending", paidDate: null },
+    { ...base, id: "opening", paidDate: "2026-11-01" },
+    { ...base, id: "other-month", paidDate: "2026-12-01" },
+    { ...base, id: "card", cardId: "card" },
+    { ...base, id: "income", kind: "income" },
+  ];
+  s.payments = [
+    {
+      id: "partial",
+      cardId: "card",
+      month: "2026-10",
+      amount: 2000,
+      date: "2026-11-03",
+      accountId: "a",
+      person: "a",
+      allocations: [],
+    },
+    {
+      id: "other-account",
+      cardId: "card",
+      month: "2026-10",
+      amount: 1000,
+      date: "2026-11-03",
+      accountId: "b",
+      person: "b",
+      allocations: [],
+    },
+  ];
+  s.movements = [
+    {
+      id: "saved",
+      goalId: "goal",
+      amount: 300,
+      date: "2026-11-04",
+      accountId: "a",
+      planned: false,
+    },
+    {
+      id: "planned",
+      goalId: "goal",
+      amount: 300,
+      date: "2026-11-04",
+      accountId: "a",
+      planned: true,
+    },
+    {
+      id: "withdrawal",
+      goalId: "goal",
+      amount: -100,
+      date: "2026-11-04",
+      accountId: "a",
+      planned: false,
+    },
+  ];
+  s.transfers = [
+    {
+      id: "sent",
+      from: "a",
+      to: "b",
+      amount: 400,
+      date: "2026-11-05",
+      settle: true,
+    },
+    {
+      id: "received",
+      from: "b",
+      to: "a",
+      amount: 100,
+      date: "2026-11-05",
+      settle: false,
+    },
+  ];
+  const rows = accountOutflows(s, "a", "2026-11");
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    [
+      "transfer-sent",
+      "movement-saved",
+      "payment-partial",
+      "entry-legacy",
+      "entry-shared",
+    ],
+  );
+  const total = rows.reduce((total, row) => total + row.amount, 0);
+  assert.equal(total, 10201);
+  assert.equal(accountBalance(s, "a", "2026-11-30"), base.amount + 200 - total);
+  assert.equal(
+    accountOutflows(s, "b", "2026-11").find((row) => row.id === "entry-shared")
+      ?.amount,
+    3000,
+  );
+  assert.deepEqual(accountOutflows(s, "missing", "2026-11"), []);
+  assert.deepEqual(accountOutflows(s, "a", "2026-09"), []);
+});
 test("money parses Brazilian decimals without floating rounding errors", () => {
   assert.equal(money("1.234,56"), 123456);
   assert.equal(money("0,29"), 29);
